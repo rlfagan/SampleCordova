@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="eocore">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/libs/eocore.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
