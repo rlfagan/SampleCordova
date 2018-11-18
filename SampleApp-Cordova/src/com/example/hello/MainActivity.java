@@ -94,30 +94,6 @@ public class MainActivity extends CordovaActivity
         }
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public void onPause() {
-        Tealeaf.onPause(this, null);
-        super.onPause();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public void onResume() {
-        Tealeaf.onResume(this, null);
-        super.onResume();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public void onDestroy() {
-        Tealeaf.onDestroy(this, null);
-        super.onDestroy();
-    }
-
     /* Add touch event to collect gestures for Tealeaf.
  *
  * (non-Javadoc)
