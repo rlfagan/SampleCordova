@@ -37,18 +37,18 @@
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TealeafAdvancedConfig.json" pinned="false" current-in-tab="true">
+      <file leaf-file-name="TealeafAdvancedConfig.json" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/assets/TealeafAdvancedConfig.json">
           <provider selected="true" editor-type-id="text-editor">
             <state />
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TealeafBasicConfig.properties" pinned="false" current-in-tab="false">
+      <file leaf-file-name="TealeafBasicConfig.properties" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/assets/TealeafBasicConfig.properties">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1095">
-              <caret line="73" column="21" selection-start-line="73" selection-start-column="21" selection-end-line="73" selection-end-column="21" />
+            <state relative-caret-position="494">
+              <caret line="77" column="31" selection-start-line="77" selection-start-column="31" selection-end-line="77" selection-end-column="31" />
             </state>
           </provider>
         </entry>
@@ -2062,8 +2062,8 @@
   <component name="IdeDocumentHistory">
     <option name="CHANGED_PATHS">
       <list>
-        <option value="$PROJECT_DIR$/assets/TealeafBasicConfig.properties" />
         <option value="$PROJECT_DIR$/src/com/example/hello/MainActivity.java" />
+        <option value="$PROJECT_DIR$/assets/TealeafBasicConfig.properties" />
       </list>
     </option>
   </component>
@@ -2246,6 +2246,9 @@
       <patterns />
     </configuration>
   </component>
+  <component name="SvnConfiguration">
+    <configuration />
+  </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
       <changelist id="3253d070-35a2-4bd3-976f-894aa5048649" name="Default" comment="" />
@@ -2307,13 +2310,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/assets/TealeafBasicConfig.properties">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1095">
-          <caret line="73" column="21" selection-start-line="73" selection-start-column="21" selection-end-line="73" selection-end-column="21" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/src/com/example/hello/MainActivity.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="975">
@@ -2324,6 +2320,13 @@
     <entry file="file://$PROJECT_DIR$/assets/TealeafAdvancedConfig.json">
       <provider selected="true" editor-type-id="text-editor">
         <state />
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/assets/TealeafBasicConfig.properties">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="494">
+          <caret line="77" column="31" selection-start-line="77" selection-start-column="31" selection-end-line="77" selection-end-column="31" />
+        </state>
       </provider>
     </entry>
   </component>
