@@ -1,6 +1,6 @@
 /*******************************************************************************
 * Licensed Materials - Property of IBM
-* (C) Copyright IBM Corp. 2017
+* (C) Copyright IBM Corp. 2019
 * US Government Users Restricted Rights - Use, duplication or disclosure
 * restricted by GSA ADP Schedule Contract with IBM Corp.
 ******************************************************************************/
@@ -11,10 +11,13 @@
   "PostMessageSocketTimeout": 3000,
   "CompressPostMessage": true,
   "BufferPercent": 20,
-  "OrientationSensorDelay": 100000,
+  "OrientationSensorDelay": 3,
   "OrientationDelayNotificationToModules": 1000,
   "ApplicationBackgroundTimeInterval": 60,
-  "LibraryVersion": "2.0.0.86",
+  "TurnOffCorrectOrientationUpdates": false,
+  "DefaultOrientation": 0,
+  "ApplicationInBackgroundEnabled": true,
+  "LibraryVersion": "2.0.4",
   "MessageVersion": "6.0.0.0",
   "MNCMCC": {
     "00": "N/A",
