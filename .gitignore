@@ -1,2 +1,4 @@
 *node_modules*
 .DS_Store
+/SampleCordova/platforms/ios/CXACordova_7.xcworkspace/xcuserdata
+/SampleCordova/platforms/ios/CordovaLib/CordovaLib.xcodeproj/xcuserdata
