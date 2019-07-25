@@ -1,4 +1,8 @@
-*node_modules*
+*.iml
+.gradle
+/local.properties
+/.idea/workspace.xml
+/.idea/libraries
 .DS_Store
-/SampleCordova/platforms/ios/CXACordova_7.xcworkspace/xcuserdata
-/SampleCordova/platforms/ios/CordovaLib/CordovaLib.xcodeproj/xcuserdata
+/build
+/captures
