@@ -23,7 +23,19 @@ Go to **SampleCordova** directory and run
 
 This will download all the third party tools.
 
-When building with xcode; in your xcode, go to File Menu >> Workspace Settings and select "Legacy Build System" for "Build System:"
+## Additional iOS instructions
+
+After npm install, goto platforms/ios folder and depending on how old your repo is run
+
+**pod install**
+
+or
+
+**pod update**
+
+By default IBMTealeafDebug pod will be used. If you want to use IBMTealeaf pod then open the Podfile under platforms/ios and change pod 'IBMTealeafDebug' to pod 'IBMTealeaf'
+
+When building with xcode 10.2 or earlier; in your xcode, go to File Menu >> Workspace Settings and select "Legacy Build System" for "Build System:"
 
 
 # Notes
