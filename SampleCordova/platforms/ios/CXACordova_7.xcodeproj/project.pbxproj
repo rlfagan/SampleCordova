@@ -13,11 +13,6 @@
 		301BF552109A68D80062928A /* libCordova.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 301BF535109A57CC0062928A /* libCordova.a */; };
 		302D95F114D2391D003F00A1 /* MainViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 302D95EF14D2391D003F00A1 /* MainViewController.m */; };
 		302D95F214D2391D003F00A1 /* MainViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 302D95F014D2391D003F00A1 /* MainViewController.xib */; };
-		66E92D0F1FBF8718006CA842 /* TLFResources.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 66E92D091FBF8717006CA842 /* TLFResources.bundle */; };
-		66E92D101FBF8718006CA842 /* EOCoreSettings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 66E92D0A1FBF8717006CA842 /* EOCoreSettings.bundle */; };
-		66E92D111FBF8718006CA842 /* libEOCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D0B1FBF8717006CA842 /* libEOCore.a */; };
-		66E92D121FBF8718006CA842 /* NSObject+TealeafEarlyLoads.m in Sources */ = {isa = PBXBuildFile; fileRef = 66E92D0D1FBF8717006CA842 /* NSObject+TealeafEarlyLoads.m */; };
-		66E92D131FBF8718006CA842 /* Tealeaf.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D0E1FBF8717006CA842 /* Tealeaf.framework */; };
 		66E92D151FBF87E9006CA842 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D141FBF87DD006CA842 /* UIKit.framework */; };
 		66E92D171FBF87FC006CA842 /* MobileCoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D161FBF87F5006CA842 /* MobileCoreServices.framework */; };
 		66E92D191FBF880C006CA842 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D181FBF8805006CA842 /* WebKit.framework */; };
@@ -27,8 +22,6 @@
 		66E92D211FBF885F006CA842 /* CoreTelephony.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D201FBF8859006CA842 /* CoreTelephony.framework */; };
 		66E92D231FBF886D006CA842 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D221FBF8868006CA842 /* SystemConfiguration.framework */; };
 		66E92D251FBF88BB006CA842 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D241FBF88BB006CA842 /* libz.tbd */; };
-		66E92D271FBF891E006CA842 /* NSObject+TealeafEarlyLoads.h in Headers */ = {isa = PBXBuildFile; fileRef = 66E92D081FBF8717006CA842 /* NSObject+TealeafEarlyLoads.h */; };
-		66E92D281FBF8925006CA842 /* EOApplicationHelper.h in Headers */ = {isa = PBXBuildFile; fileRef = 66E92D0C1FBF8717006CA842 /* EOApplicationHelper.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		6AFF5BF91D6E424B00AB3073 /* CDVLaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6AFF5BF81D6E424B00AB3073 /* CDVLaunchScreen.storyboard */; };
 /* End PBXBuildFile section */
 
@@ -71,13 +64,6 @@
 		3047A5101AB8059700498E2A /* build-release.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = "build-release.xcconfig"; path = "cordova/build-release.xcconfig"; sourceTree = SOURCE_ROOT; };
 		3047A5111AB8059700498E2A /* build.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = build.xcconfig; path = cordova/build.xcconfig; sourceTree = SOURCE_ROOT; };
 		32CA4F630368D1EE00C91783 /* CXACordova_7-Prefix.pch */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "CXACordova_7-Prefix.pch"; sourceTree = "<group>"; };
-		66E92D081FBF8717006CA842 /* NSObject+TealeafEarlyLoads.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "NSObject+TealeafEarlyLoads.h"; sourceTree = "<group>"; };
-		66E92D091FBF8717006CA842 /* TLFResources.bundle */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.plug-in"; path = TLFResources.bundle; sourceTree = "<group>"; };
-		66E92D0A1FBF8717006CA842 /* EOCoreSettings.bundle */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.plug-in"; path = EOCoreSettings.bundle; sourceTree = "<group>"; };
-		66E92D0B1FBF8717006CA842 /* libEOCore.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libEOCore.a; sourceTree = "<group>"; };
-		66E92D0C1FBF8717006CA842 /* EOApplicationHelper.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = EOApplicationHelper.h; sourceTree = "<group>"; };
-		66E92D0D1FBF8717006CA842 /* NSObject+TealeafEarlyLoads.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "NSObject+TealeafEarlyLoads.m"; sourceTree = "<group>"; };
-		66E92D0E1FBF8717006CA842 /* Tealeaf.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = Tealeaf.framework; sourceTree = "<group>"; };
 		66E92D141FBF87DD006CA842 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		66E92D161FBF87F5006CA842 /* MobileCoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MobileCoreServices.framework; path = System/Library/Frameworks/MobileCoreServices.framework; sourceTree = SDKROOT; };
 		66E92D181FBF8805006CA842 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
@@ -100,8 +86,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				66E92D131FBF8718006CA842 /* Tealeaf.framework in Frameworks */,
-				66E92D111FBF8718006CA842 /* libEOCore.a in Frameworks */,
 				66E92D151FBF87E9006CA842 /* UIKit.framework in Frameworks */,
 				66E92D171FBF87FC006CA842 /* MobileCoreServices.framework in Frameworks */,
 				66E92D191FBF880C006CA842 /* WebKit.framework in Frameworks */,
@@ -142,7 +126,6 @@
 		29B97314FDCFA39411CA2CEA /* CustomTemplate */ = {
 			isa = PBXGroup;
 			children = (
-				66E92CFB1FBF8638006CA842 /* TealeafSDK */,
 				EB87FDF41871DAF40020F90C /* config.xml */,
 				EB87FDF31871DA8E0020F90C /* www */,
 				EB87FDF11871DA420020F90C /* Staging */,
@@ -223,20 +206,6 @@
 			path = CXACordova_7/Plugins;
 			sourceTree = SOURCE_ROOT;
 		};
-		66E92CFB1FBF8638006CA842 /* TealeafSDK */ = {
-			isa = PBXGroup;
-			children = (
-				66E92D0C1FBF8717006CA842 /* EOApplicationHelper.h */,
-				66E92D0A1FBF8717006CA842 /* EOCoreSettings.bundle */,
-				66E92D0B1FBF8717006CA842 /* libEOCore.a */,
-				66E92D081FBF8717006CA842 /* NSObject+TealeafEarlyLoads.h */,
-				66E92D0D1FBF8717006CA842 /* NSObject+TealeafEarlyLoads.m */,
-				66E92D0E1FBF8717006CA842 /* Tealeaf.framework */,
-				66E92D091FBF8717006CA842 /* TLFResources.bundle */,
-			);
-			path = TealeafSDK;
-			sourceTree = "<group>";
-		};
 		EB87FDF11871DA420020F90C /* Staging */ = {
 			isa = PBXGroup;
 			children = (
@@ -253,8 +222,6 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				66E92D281FBF8925006CA842 /* EOApplicationHelper.h in Headers */,
-				66E92D271FBF891E006CA842 /* NSObject+TealeafEarlyLoads.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -299,6 +266,7 @@
 			developmentRegion = English;
 			hasScannedForEncodings = 1;
 			knownRegions = (
+				English,
 				en,
 			);
 			mainGroup = 29B97314FDCFA39411CA2CEA /* CustomTemplate */;
@@ -338,8 +306,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				66E92D0F1FBF8718006CA842 /* TLFResources.bundle in Resources */,
-				66E92D101FBF8718006CA842 /* EOCoreSettings.bundle in Resources */,
 				302D95F214D2391D003F00A1 /* MainViewController.xib in Resources */,
 				0207DA581B56EA530066E2B4 /* Images.xcassets in Resources */,
 				6AFF5BF91D6E424B00AB3073 /* CDVLaunchScreen.storyboard in Resources */,
@@ -371,7 +337,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				66E92D121FBF8718006CA842 /* NSObject+TealeafEarlyLoads.m in Sources */,
 				1D60589B0D05DD56006BFB54 /* main.m in Sources */,
 				1D3623260D0F684500981E51 /* AppDelegate.m in Sources */,
 				302D95F114D2391D003F00A1 /* MainViewController.m in Sources */,

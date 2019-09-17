@@ -23,8 +23,4 @@
 #ifdef __OBJC__
     #import <Foundation/Foundation.h>
     #import <UIKit/UIKit.h>
-    #import <Tealeaf/TLFApplication.h>
-    #import <Tealeaf/TLFApplicationHelper.h>
-    #import <Tealeaf/TLFCustomEvent.h>
-    #import <Tealeaf/TLFPublicDefinitions.h>
 #endif
