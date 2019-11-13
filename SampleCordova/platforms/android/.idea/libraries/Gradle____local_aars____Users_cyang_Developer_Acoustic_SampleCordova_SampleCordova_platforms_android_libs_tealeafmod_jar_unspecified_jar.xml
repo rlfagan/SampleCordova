@@ -1,5 +1,5 @@
 <component name="libraryTable">
-  <library name="Gradle: __local_aars__:/Users/lincrm@ibm.com/Git/AndroidSampleApps/SampleCordova/SampleCordova/platforms/android/libs/tealeafmod.jar:unspecified@jar">
+  <library name="Gradle: __local_aars__:/Users/cyang/Developer/Acoustic/SampleCordova/SampleCordova/platforms/android/libs/tealeafmod.jar:unspecified@jar">
     <CLASSES>
       <root url="jar://$PROJECT_DIR$/libs/tealeafmod.jar!/" />
     </CLASSES>
