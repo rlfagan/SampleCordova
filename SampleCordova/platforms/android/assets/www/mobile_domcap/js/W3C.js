@@ -1,9 +1,13 @@
 /*!
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
  *
- * @version 5.3.0.1788
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
+ * @version 5.6.0.1875
  * @flags w3c,NDEBUG
  */
 
@@ -11,7 +15,7 @@
  * @fileOverview Defines the core of the system, namely the TLT object.
  * @exports TLT
  */
-/*global window,TLT*/
+/*global window,TLT,TLFExtensionNotify*/
 /*jshint loopfunc:true*/
 /**
  * TLT (short for Tealeaf Technology) is the top-level object for the system. All
@@ -29,6 +33,19 @@ window.TLT = (function () {
     "use strict";
 
     /**
+     * Cached services, utils and configuration references. These will be set in _init
+     */
+    var ajaxService,
+        browserBaseService,
+        browserService,
+        configService,
+        domCaptureService,
+        queueService,
+        serializerService,
+        coreConfig,
+        utils;
+
+    /**
      * Create and add a screenview message to the default queue. Also
      * notifies any listeners of the screenview load/unload event.
      * @param {Enum} type "LOAD" or "UNLOAD" indicating the type
@@ -43,11 +60,11 @@ window.TLT = (function () {
     function logScreenview(type, name, referrerName, root) {
         var dcid = null,
             screenviewMsg = null,
-            queue = TLT.getService("queue"),
             replay = TLT.getModule("replay"),
             cookieModule = TLT.getModule("TLCookie"),
+            performanceModule = TLT.getModule("performance"),
             webEvent = null,
-            urlInfo = TLT.utils.getOriginAndPath();
+            urlInfo = utils.getOriginAndPath();
 
         // Sanity checks
         if (!name || typeof name !== "string") {
@@ -62,9 +79,12 @@ window.TLT = (function () {
             screenview: {
                 type: type,
                 name: name,
-                url: urlInfo.path,
+                originalUrl: urlInfo.path,
+                url: TLT.normalizeUrl(urlInfo.path),
                 host: urlInfo.origin,
-                referrer: referrerName
+                referrer: referrerName,
+                title: document.title,
+                queryParams: urlInfo.queryParams
             }
         };
 
@@ -92,55 +112,17 @@ window.TLT = (function () {
         }
 
         if (type === "LOAD" || type === "UNLOAD") {
-            queue.post("", screenviewMsg, "DEFAULT");
+            queueService.post("", screenviewMsg);
         }
 
         if (webEvent && cookieModule) {
             cookieModule.onevent(webEvent);
         }
-    }
 
-    /**
-     * Create and add a geolocation message to the default queue based
-     * on the position object.
-     * @param {object} position W3C Geolocation API position object.
-     * @returns {void}
-     */
-    function addGeolocationMsg(position) {
-        var geolocationMsg,
-            queue = TLT.getService("queue");
-
-        if (!position || !position.coords) {
-            return;
+        if (webEvent && performanceModule) {
+            performanceModule.onevent(webEvent);
         }
-
-        geolocationMsg = {
-            type: 13,
-            geolocation: {
-                "lat": position.coords.latitude,
-                "long": position.coords.longitude,
-                "accuracy": Math.ceil(position.coords.accuracy)
-            }
-        };
-
-        queue.post("", geolocationMsg, "DEFAULT");
     }
-
-    function addGeolocationErrorMsg() {
-        var geolocationMsg,
-            queue = TLT.getService("queue");
-
-        geolocationMsg = {
-            type: 13,
-            geolocation: {
-                "errorCode": 201,
-                "error": "Permission denied."
-            }
-        };
-
-        queue.post("", geolocationMsg, "DEFAULT");
-    }
-
 
     var tltStartTime = (new Date()).getTime(),
         tltPageId,
@@ -181,8 +163,7 @@ window.TLT = (function () {
                 checkedFrames = [];
 
             function prepareBlacklistedFrames(scope) {
-                var browserService = core.getService("browser"),
-                    blacklist = core.getCoreConfig().framesBlacklist,
+                var blacklist = coreConfig.framesBlacklist,
                     foundFrames,
                     i;
                 blacklistedFrames = blacklistedFrames || [];
@@ -199,10 +180,10 @@ window.TLT = (function () {
             }
 
             function isFrameBlacklisted(iframe) {
-                if (core.utils.indexOf(checkedFrames, iframe) < 0) {
+                if (utils.indexOf(checkedFrames, iframe) < 0) {
                     prepareBlacklistedFrames(iframe.ownerDocument);
                 }
-                return core.utils.indexOf(blacklistedFrames, iframe) > -1;
+                return utils.indexOf(blacklistedFrames, iframe) > -1;
             }
 
             isFrameBlacklisted.clearCache = function () {
@@ -392,8 +373,7 @@ window.TLT = (function () {
                 normalizeModuleEvents: function (moduleName, moduleEvents, localTop, documentScope) {
                     var modStatus = status[moduleName],
                         load = false,
-                        unload = false,
-                        browserService = core.getService("browser");
+                        unload = false;
 
                     localTop = localTop || core._getLocalTop();
                     documentScope = documentScope || localTop.document;
@@ -408,21 +388,21 @@ window.TLT = (function () {
                         pageHideFired: false
                     };
 
-                    core.utils.forEach(moduleEvents, function (eventConfig) {
+                    utils.forEach(moduleEvents, function (eventConfig) {
                         switch (eventConfig.name) {
                         case "load":
                             load = true;
-                            moduleEvents.push(core.utils.mixin(core.utils.mixin({}, eventConfig), {
+                            moduleEvents.push(utils.mixin(utils.mixin({}, eventConfig), {
                                 name: "pageshow"
                             }));
                             break;
 
                         case "unload":
                             unload = true;
-                            moduleEvents.push(core.utils.mixin(core.utils.mixin({}, eventConfig), {
+                            moduleEvents.push(utils.mixin(utils.mixin({}, eventConfig), {
                                 name: "pagehide"
                             }));
-                            moduleEvents.push(core.utils.mixin(core.utils.mixin({}, eventConfig), {
+                            moduleEvents.push(utils.mixin(utils.mixin({}, eventConfig), {
                                 name: "beforeunload"
                             }));
                             break;
@@ -431,8 +411,8 @@ window.TLT = (function () {
                         // simulate correct 'change' events on radio and checkbox.
                         // required for W3C only as jQuery normalizes it.
                         case "change":
-                            if (core.utils.isLegacyIE && core.getFlavor() === "w3c") {
-                                moduleEvents.push(core.utils.mixin(core.utils.mixin({}, eventConfig), {
+                            if (utils.isLegacyIE && core.getFlavor() === "w3c") {
+                                moduleEvents.push(utils.mixin(utils.mixin({}, eventConfig), {
                                     name: "propertychange"
                                 }));
                             }
@@ -506,6 +486,12 @@ window.TLT = (function () {
         }()),
 
         /**
+         * The WebEvent object being handled in publishEvent.
+         * @private
+         */
+        currentWebEvent = {},
+
+        /**
          * Keeps track of the events being handled.
          * @private
          */
@@ -553,9 +539,9 @@ window.TLT = (function () {
 
                 // Check if pathname or hash do not match previously saved values
                 if (currPathname !== prevPathname) {
-                    currScreenview = currPathname + currHash;
+                    currScreenview = TLT.normalizeUrl(currPathname + currHash);
                 } else if (currHash !== prevHash) {
-                    currScreenview = currHash;
+                    currScreenview = TLT.normalizeUrl(currHash);
                 }
 
                 // Has the screenview changed?
@@ -583,8 +569,7 @@ window.TLT = (function () {
             var i, j,
                 len,
                 isBlocked = false,
-                browserService = core.getService("browser"),
-                blockedList = core.getCoreConfig().blockedElements,
+                blockedList = coreConfig.blockedElements,
                 blockedElem,
                 blockedElems,
                 blockedElemsLen;
@@ -601,7 +586,7 @@ window.TLT = (function () {
                 return isBlocked;
             }
 
-            scope = scope || core.utils.getDocument(element);
+            scope = scope || utils.getDocument(element);
             for (i = 0, len = blockedList.length; i < len && !isBlocked; i += 1) {
                 blockedElems = browserService.queryAll(blockedList[i], scope);
                 for (j = 0, blockedElemsLen = blockedElems.length; j < blockedElemsLen && !isBlocked; j += 1) {
@@ -613,10 +598,37 @@ window.TLT = (function () {
             return isBlocked;
         },
 
+        /**
+         * Checks if link has one of the blacklisted protocols.
+         */
+        hasExcludedProtocol = function (element) {
+            var hasExcluded = false,
+                list = ["intent:", "mailto:", "sms:", "tel:"];
+
+            if (element && utils.getTagName(element) === "a" && list.indexOf(element.protocol) !== -1) {
+                hasExcluded = true;
+            }
+            return hasExcluded;
+        },
 
         // main interface for the core
         core = /**@lends TLT*/ {
 
+
+            /**
+             * Load cached vars for unit tests.
+             */
+            _loadGlobalsForUnitTesting: function (global) {
+                utils = global.utils;
+                ajaxService = global.getService("ajax");
+                browserBaseService = global.getService("browserBase");
+                browserService = global.getService("browser");
+                configService = global.getService("config");
+                domCaptureService = global.getService("domCapture");
+                queueService = global.getService("queue");
+                serializerService = global.getService("serializer");
+                coreConfig = configService ? configService.getCoreConfig() : null;
+            },
 
             /**
              * @returns {integer} Returns the recorded timestamp in milliseconds corresponding to when the TLT object was created.
@@ -636,7 +648,40 @@ window.TLT = (function () {
              * @returns {String} The library version string.
              */
             getLibraryVersion: function () {
-                return "5.3.0.1788";
+                return "5.6.0.1875";
+            },
+
+            /**
+             * @returns {Object} Returns the WebEvent object currently being handled by _publishEvent
+             */
+            getCurrentWebEvent: function () {
+                return currentWebEvent;
+            },
+
+            normalizeUrl: function (moduleName, url) {
+                var config,
+                    urlFunction;
+
+                if (typeof url === "undefined") {
+                    url = moduleName;
+                }
+
+                config = this.getCoreConfig();
+                if (config.normalization && config.normalization.urlFunction) {
+                    urlFunction = config.normalization.urlFunction;
+                    if (typeof urlFunction === "string") {
+                        urlFunction = utils.access(urlFunction);
+                    }
+                    return urlFunction(url);
+                }
+                return url;
+            },
+
+            /**
+             * @returns {object} Returns session start.
+             */
+            getSessionStart: function () {
+                return this.getService("message").getSessionStart();
             },
 
             //---------------------------------------------------------------------
@@ -656,18 +701,27 @@ window.TLT = (function () {
              */
             init: function (config, callback) {
                 var timeoutCallback;
+
+                // Setup utils to reference TLT.utils
+                utils = this.utils;
+
+                // Legacy IE (IE 8 and below) not supported.
+                if (utils.isLegacyIE) {
+                    return;
+                }
+
                 _callback = callback;
                 if (!okToCallInit) {
                     throw "init must only be called once!";
                 }
 
                 // Set the page id.
-                tltPageId = "P." + this.utils.getRandomString(28);
+                tltPageId = "P." + utils.getRandomString(28);
 
                 okToCallInit = false;
                 timeoutCallback = function (event) {
                     event = event || window.event || {};
-                    if (document.addEventListener || event.type === "load" || document.readyState === "complete") {
+                    if (event.type === "load" || document.readyState !== "loading") {
                         if (document.removeEventListener) {
                             document.removeEventListener("DOMContentLoaded", timeoutCallback, false);
                             window.removeEventListener("load", timeoutCallback, false);
@@ -680,7 +734,7 @@ window.TLT = (function () {
                 };
 
                 // case when DOM already loaded (lazy-loaded UIC)
-                if (document.readyState === "complete") {
+                if (document.readyState === "complete" || (document.readyState === "interactive" && !utils.isIE)) {
                     // Lets the current browser cycle to complete before calling init
                     setTimeout(timeoutCallback);
                 } else if (document.addEventListener) {
@@ -719,7 +773,6 @@ window.TLT = (function () {
                     target = null,
                     serviceName = null,
                     service = null,
-                    browser = null,
                     delegateTarget = false;
 
                 if (okToCallInit) { //nothing to do
@@ -729,14 +782,13 @@ window.TLT = (function () {
                 this.stopAll();
 
                 if (!skipEvents) {
-                    browser = this.getService("browser");
                     // Unregister events
                     for (token in events) {
-                        if (events.hasOwnProperty(token) && browser !== null) {
+                        if (events.hasOwnProperty(token)) {
                             eventName = token.split("|")[0];
                             target = events[token].target;
                             delegateTarget = events[token].delegateTarget || undefined;
-                            browser.unsubscribe(eventName, target, this._publishEvent, delegateTarget);
+                            browserService.unsubscribe(eventName, target, this._publishEvent, delegateTarget);
                         }
                     }
                 }
@@ -776,21 +828,20 @@ window.TLT = (function () {
             /**
              * Iterates over each module and starts or stops it according to
              * configuration information.
-             * @returns {void}
+             * @returns {Boolean} true if modules were successfully initialized, false otherwise.
              * @private
              */
             _updateModules: function (scope) {
 
-                var config = this.getCoreConfig(),
-                    browser = this.getService("browser"),
-                    moduleConfig = null,
-                    moduleName = null;
+                var moduleConfig = null,
+                    moduleName = null,
+                    result = true;
 
-                if (config && browser && config.modules) {
+                if (coreConfig && coreConfig.modules) {
                     try {
-                        for (moduleName in config.modules) {
-                            if (config.modules.hasOwnProperty(moduleName)) {
-                                moduleConfig = config.modules[moduleName];
+                        for (moduleName in coreConfig.modules) {
+                            if (coreConfig.modules.hasOwnProperty(moduleName)) {
+                                moduleConfig = coreConfig.modules[moduleName];
 
                                 if (modules.hasOwnProperty(moduleName)) {
                                     if (moduleConfig.enabled === false) {
@@ -811,12 +862,12 @@ window.TLT = (function () {
                         this._registerModuleEvents.clearCache();
                     } catch (e) {
                         core.destroy();
-                        return false;
+                        result = false;
                     }
                 } else {
-                    return false;
+                    result = false;
                 }
-                return true;
+                return result;
             },
 
             /**
@@ -844,23 +895,22 @@ window.TLT = (function () {
                 var rv = null,
                     sessionData = null,
                     scName,
-                    scValue,
-                    config = core.getCoreConfig();
+                    scValue;
 
-                if (!config || !config.sessionDataEnabled) {
+                if (!coreConfig || !coreConfig.sessionDataEnabled) {
                     return null;
                 }
 
-                sessionData = config.sessionData || {};
+                sessionData = coreConfig.sessionData || {};
 
                 // Add any session ID data
                 scName = sessionData.sessionQueryName;
                 if (scName) {
-                    scValue = core.utils.getQueryStringValue(scName, sessionData.sessionQueryDelim);
+                    scValue = utils.getQueryStringValue(scName, sessionData.sessionQueryDelim);
                 } else {
                     // Either the cookie name is configured or the default is assumed.
                     scName = sessionData.sessionCookieName || "TLTSID";
-                    scValue = core.utils.getCookieValue(scName);
+                    scValue = utils.getCookieValue(scName);
                 }
 
                 if (scName && scValue) {
@@ -875,31 +925,33 @@ window.TLT = (function () {
 
             /**
              * Public API to create and add a geolocation message to the default
-             * queue. This API accepts an optional position object which is defined
+             * queue. This API accepts a position object which is defined
              * by the W3C Geolocation API. If no position object is specified then
-             * this API will query for location informatino using the W3C Geolocation API.
-             * @param {object} [position] W3C Geolocation API position object.
+             * this API will return without logging any message.
+             * @param {object} position W3C Geolocation API position object.
              * @returns {void}
              */
             logGeolocation: function (position) {
-                var replayConfig = core.getModuleConfig("replay") || {},
-                    geolocationConfigOptions = core.utils.getValue(replayConfig, "geolocation.options", {
-                        timeout: 30000,
-                        enableHighAccuracy: true,
-                        maximumAge: 0
-                    }),
-                    geolocationEnabled = core.utils.getValue(replayConfig, "geolocation.enabled", false),
-                    navigator = window.navigator;
+                var geolocationMsg;
 
-                if (!position) {
-                    if (!geolocationEnabled || !navigator || !navigator.geolocation || !navigator.geolocation.getCurrentPosition) {
-                        // Geolocation is not enabled or it is not supported by this browser
-                        return;
-                    }
-                    navigator.geolocation.getCurrentPosition(addGeolocationMsg, addGeolocationErrorMsg, geolocationConfigOptions);
-                } else {
-                    addGeolocationMsg(position);
+                if (!core.isInitialized()) {
+                    return;
                 }
+
+                if (!position || !position.coords) {
+                    return;
+                }
+
+                geolocationMsg = {
+                    type: 13,
+                    geolocation: {
+                        "lat": utils.getValue(position, "coords.latitude", 0),
+                        "long": utils.getValue(position, "coords.longitude", 0),
+                        "accuracy": Math.ceil(utils.getValue(position, "coords.accuracy", 0))
+                    }
+                };
+
+                queueService.post("", geolocationMsg);
             },
 
             /**
@@ -916,8 +968,7 @@ window.TLT = (function () {
                     return;
                 }
 
-                var customMsg = null,
-                    queue = this.getService("queue");
+                var customMsg = null;
 
                 // Sanity checks
                 if (!name || typeof name !== "string") {
@@ -932,7 +983,7 @@ window.TLT = (function () {
                         data: customMsgObj
                     }
                 };
-                queue.post("", customMsg, "DEFAULT");
+                queueService.post("", customMsg);
             },
 
             /**
@@ -949,8 +1000,7 @@ window.TLT = (function () {
                     return;
                 }
 
-                var exceptionMsg = null,
-                    queue = this.getService("queue");
+                var exceptionMsg = null;
 
                 // Sanity checks
                 if (!msg || typeof msg !== "string") {
@@ -968,7 +1018,7 @@ window.TLT = (function () {
                     }
                 };
 
-                queue.post("", exceptionMsg);
+                queueService.post("", exceptionMsg);
             },
 
             /**
@@ -988,8 +1038,7 @@ window.TLT = (function () {
                     return;
                 }
 
-                var queue = this.getService("queue"),
-                    formCompletionMsg = {
+                var formCompletionMsg = {
                         type: 15,
                         formCompletion: {
                             submitted: !!submitted,
@@ -997,7 +1046,7 @@ window.TLT = (function () {
                         }
                     };
 
-                queue.post("", formCompletionMsg);
+                queueService.post("", formCompletionMsg);
             },
 
             /**
@@ -1048,29 +1097,26 @@ window.TLT = (function () {
             logDOMCapture: function (root, config) {
                 var dcid = null,
                     domCaptureData,
-                    domCaptureService,
                     domCaptureServiceConfig,
-                    msg,
-                    queue;
+                    msg;
 
                 if (!this.isInitialized()) {
                     return dcid;
                 }
 
                 // DOM Capture is not supported on IE 8 and below
-                if (core.utils.isLegacyIE) {
+                if (utils.isLegacyIE) {
                     return dcid;
                 }
 
-                domCaptureService = this.getService("domCapture");
                 if (domCaptureService) {
                     root = root || window.document;
                     domCaptureServiceConfig = this.getServiceConfig("domCapture");
-                    config = this.utils.mixin({}, domCaptureServiceConfig.options, config);
+                    config = utils.mixin({}, domCaptureServiceConfig.options, config);
                     domCaptureData = domCaptureService.captureDOM(root, config);
                     if (domCaptureData) {
                         // Add the unique id for this DOM Capture message
-                        dcid = config.dcid || ("dcid-" + this.utils.getSerialNumber() + "." + (new Date()).getTime());
+                        dcid = config.dcid || ("dcid-" + utils.getSerialNumber() + "." + (new Date()).getTime());
                         domCaptureData.dcid = dcid;
                         // Copy the eventOn flag
                         domCaptureData.eventOn = !!config.eventOn;
@@ -1080,11 +1126,10 @@ window.TLT = (function () {
                             "domCapture": domCaptureData
                         };
                         // POST it to the queue
-                        queue = this.getService("queue");
-                        queue.post("", msg, "DEFAULT");
+                        queueService.post("", msg);
                         if (config.qffd !== false && !fullDOMFlushed && msg.domCapture.fullDOM) {
                             // Flush queue on 1st full DOM
-                            queue.flush();
+                            queueService.flush();
                             fullDOMFlushed = true;
                         }
                     } else {
@@ -1367,8 +1412,7 @@ window.TLT = (function () {
                     cb = null,
                     cbEntry,
                     cbList,
-                    cbListLen,
-                    utils = this.utils;
+                    cbListLen;
 
                 // Sanity check
                 if (!callbacks) {
@@ -1429,9 +1473,7 @@ window.TLT = (function () {
                     cb,
                     cbList,
                     cbListLen,
-                    retval,
-                    utils = this.utils,
-                    sS;
+                    retval;
 
                 // Sanity check
                 if (!queue || !queue.length) {
@@ -1448,12 +1490,12 @@ window.TLT = (function () {
                 } else {
                     cbList = cb;
                 }
-                sS = core.getService("serializer");
+
                 for (j = 0, cbListLen = cbList.length; j < cbListLen; j += 1) {
                     cb = cbList[j];
                     if (cb && cb.enabled) {
                         for (i = 0, len = queue.length; i < len; i += 1) {
-                            retval = cb.cbFunction(sS.serialize(queue[i]), queue[i]);
+                            retval = cb.cbFunction(serializerService.serialize(queue[i]), queue[i]);
                             if (retval && typeof retval === "object") {
                                 queue[i] = retval;
                             } else {
@@ -1515,7 +1557,7 @@ window.TLT = (function () {
             _registerModuleEvents: (function () {
 
                 /**
-                 * An instance of core.utils.WeakMap us as a cache for mapping DOM elements with their IDs.
+                 * An instance of TLT.utils.WeakMap us as a cache for mapping DOM elements with their IDs.
                  * Introduced to reduce number of expensive browserBase.ElementData.prototype.examineID calls.
                  * Object initialization in _registerModuleEvents function
                  * @private
@@ -1555,11 +1597,9 @@ window.TLT = (function () {
                  * @private
                  */
                 function _registerModuleEventsOnScope(moduleName, moduleEvents, scope) {
-                    var browserBase = core.getService("browserBase"),
-                        browser = core.getService("browser"),
-                        documentScope = core.utils.getDocument(scope),
+                    var documentScope = utils.getDocument(scope),
                         localTop = core._getLocalTop(),
-                        isFrame = core.utils.isIFrameDescendant(scope),
+                        isFrame = utils.isIFrameDescendant(scope),
                         frameId,
                         e,
                         i;
@@ -1568,7 +1608,7 @@ window.TLT = (function () {
                     loadUnloadHandler.normalizeModuleEvents(moduleName, moduleEvents, localTop, documentScope);
 
                     if (isFrame) {
-                        frameId = browserBase.ElementData.prototype.examineID(scope).id;
+                        frameId = browserBaseService.ElementData.prototype.examineID(scope).id;
                         // remove one closing ']'
                         if (typeof frameId === "string") {
                             frameId = frameId.slice(0, frameId.length - 1);
@@ -1587,7 +1627,7 @@ window.TLT = (function () {
                         }
                     }
 
-                    core.utils.forEach(moduleEvents, function (eventConfig) {
+                    utils.forEach(moduleEvents, function (eventConfig) {
                         var target = normalizeToObject(eventConfig.target, localTop, documentScope) || documentScope,
                             delegateTarget = normalizeToObject(eventConfig.delegateTarget, localTop, documentScope),
                             token = "";
@@ -1605,27 +1645,27 @@ window.TLT = (function () {
                                     events[token] = [moduleName];
                                     events[token].target = target;
                                     events[token].delegateTarget = delegateTarget;
-                                    browser.subscribe(eventConfig.name, target, core._publishEvent, delegateTarget, token);
+                                    browserService.subscribe(eventConfig.name, target, core._publishEvent, delegateTarget, token);
                                 } else {
                                     events[token].push(moduleName);
                                 }
                             } else {
-                                core.utils.forEach(browser.queryAll(target, scope), function (element) {
+                                utils.forEach(browserService.queryAll(target, scope), function (element) {
                                     var idData = idCache.get(element);
                                     if (!idData) {
-                                        idData = browserBase.ElementData.prototype.examineID(element);
+                                        idData = browserBaseService.ElementData.prototype.examineID(element);
                                         idCache.set(element, idData);
                                     }
                                     token = eventConfig.name + "|" + idData.id + idData.idType;
                                     // If the token already exists, do nothing
-                                    if (core.utils.indexOf(events[token], moduleName) !== -1) {
+                                    if (utils.indexOf(events[token], moduleName) !== -1) {
                                         return;
                                     }
                                     events[token] = events[token] || [];
                                     events[token].push(moduleName);
                                     // Save a reference to the tokens target to be able to unregister it later.
                                     events[token].target = element;
-                                    browser.subscribe(eventConfig.name, element, core._publishEvent);
+                                    browserService.subscribe(eventConfig.name, element, core._publishEvent);
                                 });
                             }
                         // Else: The target, specified in the config, is an object or empty
@@ -1635,10 +1675,10 @@ window.TLT = (function () {
                             token = core._buildToken4bubbleTarget(eventConfig.name, target, typeof eventConfig.target === "undefined");
                             if (!events.hasOwnProperty(token)) {
                                 events[token] = [moduleName];
-                                browser.subscribe(eventConfig.name, target, core._publishEvent);
+                                browserService.subscribe(eventConfig.name, target, core._publishEvent);
                             } else {
                                 /* XXX: Only add if module entry doesn't exist. */
-                                if (core.utils.indexOf(events[token], moduleName) === -1) {
+                                if (utils.indexOf(events[token], moduleName) === -1) {
                                     events[token].push(moduleName);
                                 }
                             }
@@ -1659,7 +1699,7 @@ window.TLT = (function () {
                  * @returns {boolean} true when given frame is completely loaded; false otherwise
                  */
                 function _isFrameLoaded(hIFrame) {
-                    var iFrameWindow = core.utils.getIFrameWindow(hIFrame);
+                    var iFrameWindow = utils.getIFrameWindow(hIFrame);
                     return (iFrameWindow !== null) &&
                             core._hasSameOrigin(iFrameWindow) &&
                             (iFrameWindow.document !== null) &&
@@ -1669,14 +1709,12 @@ window.TLT = (function () {
                 // actual implementation of core._registerModuleEvents
                 function registerModuleEvents(moduleName, moduleEvents, scope) {
                     scope = scope || core._getLocalTop().document;
-                    idCache = idCache || new core.utils.WeakMap();
+                    idCache = idCache || new utils.WeakMap();
 
                     _registerModuleEventsOnScope(moduleName, moduleEvents, scope);
                     if (moduleName !== "performance") {
                         var hIFrame = null,
                             hIFrameWindow = null,
-                            browserService = core.getService("browser"),
-                            dcService = core.getService("domCapture"),
                             cIFrames = browserService.queryAll("iframe, frame", scope),
                             i,
                             iLength;
@@ -1687,10 +1725,10 @@ window.TLT = (function () {
                                 continue;
                             }
                             if (_isFrameLoaded(hIFrame)) {
-                                hIFrameWindow = core.utils.getIFrameWindow(hIFrame);
+                                hIFrameWindow = utils.getIFrameWindow(hIFrame);
                                 core._registerModuleEvents(moduleName, moduleEvents, hIFrameWindow.document);
                                 // Notify the domCapture service to observe this frame window
-                                dcService.observeWindow(hIFrameWindow);
+                                domCaptureService.observeWindow(hIFrameWindow);
                                 continue;
                             }
 
@@ -1707,11 +1745,11 @@ window.TLT = (function () {
                                             var hIFrameWindow = null;
 
                                             if (!isFrameBlacklisted(hIFrame)) {
-                                                hIFrameWindow = core.utils.getIFrameWindow(hIFrame);
+                                                hIFrameWindow = utils.getIFrameWindow(hIFrame);
                                                 if (core._hasSameOrigin(hIFrameWindow)) {
                                                     core._registerModuleEvents(moduleName, moduleEvents, hIFrameWindow.document);
                                                     // Notify the domCapture service to observe this frame window
-                                                    dcService.observeWindow(hIFrameWindow);
+                                                    domCaptureService.observeWindow(hIFrameWindow);
                                                 }
                                             }
                                             frameLoadPending -= 1;
@@ -1725,13 +1763,13 @@ window.TLT = (function () {
                                         }
                                     };
 
-                                core.utils.addEventListener(hIFrame, "load", function () {
+                                utils.addEventListener(hIFrame, "load", function () {
                                     _iframeContext._registerModuleEventsDelayed();
                                 });
 
-                                if (core.utils.isLegacyIE && _isFrameLoaded(hIFrame)) {
-                                    hIFrameWindow = core.utils.getIFrameWindow(hIFrame);
-                                    core.utils.addEventListener(hIFrameWindow.document, "readystatechange", function () {
+                                if (utils.isLegacyIE && _isFrameLoaded(hIFrame)) {
+                                    hIFrameWindow = utils.getIFrameWindow(hIFrame);
+                                    utils.addEventListener(hIFrameWindow.document, "readystatechange", function () {
                                         _iframeContext._registerModuleEventsDelayed();
                                     });
                                 }
@@ -1762,7 +1800,7 @@ window.TLT = (function () {
              */
             _buildToken4currentTarget: function (event) {
                 var target = event.nativeEvent ? event.nativeEvent.currentTarget : null,
-                    idData = target ? this.getService("browserBase").ElementData.prototype.examineID(target) :
+                    idData = target ? browserBaseService.ElementData.prototype.examineID(target) :
                             {
                                 id: event.target ? event.target.id : null,
                                 idType: event.target ? event.target.idType : -1
@@ -1793,16 +1831,15 @@ window.TLT = (function () {
             _buildToken4bubbleTarget: function (eventType, target, checkIframe, delegateTarget) {
                 var localTop = core._getLocalTop(),
                     localWindow,
-                    browserService = core.getService("browser"),
                     _getIframeElement = function (documentScope) {
                         var retVal = null;
 
                         if (core._hasSameOrigin(localWindow.parent)) {
-                            core.utils.forEach(browserService.queryAll("iframe, frame", localWindow.parent.document), function (iframe) {
+                            utils.forEach(browserService.queryAll("iframe, frame", localWindow.parent.document), function (iframe) {
                                 var iFrameWindow = null;
 
                                 if (!isFrameBlacklisted(iframe)) {
-                                    iFrameWindow = core.utils.getIFrameWindow(iframe);
+                                    iFrameWindow = utils.getIFrameWindow(iframe);
                                     if (core._hasSameOrigin(iFrameWindow) && iFrameWindow.document === documentScope) {
                                         retVal = iframe;
                                     }
@@ -1811,8 +1848,7 @@ window.TLT = (function () {
                         }
                         return retVal;
                     },
-                    documentScope = core.utils.getDocument(target),
-                    browserBase = this.getService("browserBase"),
+                    documentScope = utils.getDocument(target),
                     iframeElement = null,
                     tmpTarget,
                     retVal = eventType,
@@ -1828,13 +1864,13 @@ window.TLT = (function () {
                     if (checkIframe && localWindow && core._hasSameOrigin(localWindow.parent) && typeof documentScope !== "undefined" && localTop.document !== documentScope) {
                         iframeElement = _getIframeElement(documentScope);
                         if (iframeElement) {
-                            tmpTarget = browserBase.ElementData.prototype.examineID(iframeElement);
+                            tmpTarget = browserBaseService.ElementData.prototype.examineID(iframeElement);
                             retVal += "|" + tmpTarget.xPath + "-2";
                         }
                     } else if (delegateTarget && delegateTarget !== document && core.getFlavor() === "jQuery") {
                         // NOTE: elegateTarget !== document  --- because simple jQuery.on has delegateTarget set to document
                         // for event defined without target e.g. { name: "click", recurseFrame: true }
-                        retVal += "|null-2|" + core.utils.getTagName(target) + "|" + core.utils.getTagName(delegateTarget);
+                        retVal += "|null-2|" + utils.getTagName(target) + "|" + utils.getTagName(delegateTarget);
                     } else {
                         retVal += "|null-2|document";
                     }
@@ -1877,17 +1913,20 @@ window.TLT = (function () {
                     modEvent = null,
                     canIgnore = false,
                     canPublish = false,
-                    coreConfig = core.getCoreConfig(),
-                    browserService = core.getService("browser"),
                     delegateTarget = event.delegateTarget || null,
-                    screenviewAutoDetect;
+                    screenviewAutoDetect,
+                    clickedEl;
+
+                // Set the current WebEvent being handled in _publishEvent
+                currentWebEvent = event;
 
                 // Only click, change, mouse* and touch* events reset the inactivity timer.
                 if (event.type.match(/^(click|change|blur|mouse|touch)/)) {
                     resetInactivityTimer();
+                    queueService.resetFlushTimer();
                 }
 
-                screenviewAutoDetect = core.utils.getValue(coreConfig, "screenviewAutoDetect", true);
+                screenviewAutoDetect = utils.getValue(coreConfig, "screenviewAutoDetect", true);
                 if (screenviewAutoDetect) {
                     // auto detect screenview changes on each event handling cycle
                     detectScreenviewChange();
@@ -1895,34 +1934,45 @@ window.TLT = (function () {
 
                 // ignore native browser 'load' events
                 if ((event.type === "load" || event.type === "pageshow") && !event.nativeEvent.customLoad) {
+                    currentWebEvent = {};
                     return;
                 }
 
-                // IE only: ignore 'beforeunload' fired by link placed in blacklist of excluded links
-                if (core.utils.isIE) {
-                    if (event.type === "click") {
-                        lastClickedElement = event.target.element;
-                    }
-                    if (event.type === "beforeunload") {
-                        canIgnore = false;
-                        core.utils.forEach(coreConfig.ieExcludedLinks, function (selector) {
-                            var i,
-                                len,
-                                el = browserService.queryAll(selector);
+                // ignore 'beforeunload' fired by link placed in blacklist of excluded links
+                if (event.type === "click") {
+                    lastClickedElement = event.target.element;
+                }
+                if (event.type === "beforeunload") {
+                    canIgnore = false;
 
-                            for (i = 0, len = el ? el.length : 0; i < len; i += 1) {
-                                if (typeof el[i] !== undefined && el[i] === lastClickedElement) {
-                                    // Last clicked element was in the blacklist. Set the ignore flag.
-                                    canIgnore = true;
-                                    return;
+                    // Chrome, FF, IE has anchor element on document.activeElement
+                    // Safari has anchor element on lastClickedElement
+                    clickedEl = (utils.getTagName(lastClickedElement) === "a") ? lastClickedElement : document.activeElement;
+
+                    if (clickedEl) {
+                        if (hasExcludedProtocol(clickedEl)) {
+                            canIgnore = true;
+                        } else {
+                            utils.forEach(coreConfig.ieExcludedLinks, function (selector) {
+                                var i,
+                                    len,
+                                    el = browserService.queryAll(selector);
+
+                                for (i = 0, len = el ? el.length : 0; i < len; i += 1) {
+                                    if (typeof el[i] !== undefined && el[i] === lastClickedElement) {
+                                        // Last clicked element was in the blacklist. Set the ignore flag.
+                                        canIgnore = true;
+                                        currentWebEvent = {};
+                                        return;
+                                    }
                                 }
-                            }
-                        });
-
-                        if (canIgnore) {
-                            // The beforeunload can be ignored.
-                            return;
+                            });
                         }
+                    }
+                    if (canIgnore) {
+                        // The beforeunload can be ignored.
+                        currentWebEvent = {};
+                        return;
                     }
                 }
 
@@ -1932,8 +1982,9 @@ window.TLT = (function () {
                 }
 
                 // ignore native browser 'change' events on IE<9/W3C for radio buttons and checkboxes
-                if (event.type === "change" && core.utils.isLegacyIE && core.getFlavor() === "w3c" &&
+                if (event.type === "change" && utils.isLegacyIE && core.getFlavor() === "w3c" &&
                         (event.target.element.type === "checkbox" || event.target.element.type === "radio")) {
+                    currentWebEvent = {};
                     return;
                 }
 
@@ -1943,12 +1994,14 @@ window.TLT = (function () {
                         event.type = "change";
                         event.target.type = "INPUT";
                     } else {
+                        currentWebEvent = {};
                         return;
                     }
                 }
 
                 // Is the target element in the blocked list?
                 if (event.target && isElementBlocked(event.target.element)) {
+                    currentWebEvent = {};
                     return;
                 }
 
@@ -1966,7 +2019,7 @@ window.TLT = (function () {
                     for (i = 0, len = modules.length; i < len; i += 1) {
                         moduleName = modules[i];
                         module = core.getModule(moduleName);
-                        modEvent = core.utils.mixin({}, event);
+                        modEvent = utils.mixin({}, event);
                         if (module && core.isStarted(moduleName) && typeof module.onevent === "function") {
                             canPublish = loadUnloadHandler.canPublish(moduleName, modEvent);
                             if (canPublish) {
@@ -1980,6 +2033,7 @@ window.TLT = (function () {
                     core.destroy();
                 }
 
+                currentWebEvent = {};
             },
 
             _getLocalTop: function () {
@@ -2155,7 +2209,7 @@ window.TLT = (function () {
              * Retrieves a service instance, creating it if one doesn't already exist.
              * @param {String} serviceName The name of the service to retrieve.
              * @returns {Object} The service object as returned from the service
-             *      creator or null if the service doesn't exist.
+             * creator or null if the service doesn't exist.
              */
             getService: function (serviceName) {
                 if (services.hasOwnProperty(serviceName)) {
@@ -2167,8 +2221,9 @@ window.TLT = (function () {
                                 services[serviceName].instance.init();
                             }
                         } catch (e) {
-                            // shut the library down if jQuery or sizzle is not found / not supported
-                            return null;
+                            // shut the library down if a service cannot be instanciated
+                            utils.clog("UIC terminated due to error when instanciating the " + serviceName + " service.");
+                            throw e;
                         }
                         if (typeof services[serviceName].instance.getServiceName !== "function") {
                             services[serviceName].instance.getServiceName = function () {
@@ -2214,7 +2269,7 @@ window.TLT = (function () {
                         if (modules.hasOwnProperty(prop)) {
                             module = modules[prop];
 
-                            if (core.utils.indexOf(module.messages, message.type) > -1) {
+                            if (utils.indexOf(module.messages, message.type) > -1) {
                                 if (typeof module.instance.onmessage === "function") {
                                     module.instance.onmessage(message);
                                 }
@@ -2236,7 +2291,7 @@ window.TLT = (function () {
                 if (this.isStarted(moduleName)) {
                     module = modules[moduleName];
 
-                    if (core.utils.indexOf(module.messages, messageType) === -1) {
+                    if (utils.indexOf(module.messages, messageType) === -1) {
                         module.messages.push(messageType);
                     }
                 }
@@ -2251,7 +2306,7 @@ window.TLT = (function () {
                 try {
                     core.destroy(!!skipEvents);
                 } finally {
-                    core.utils.clog(message);
+                    utils.clog(message);
                     throw new core.UICError(message, failcode);
                 }
             },
@@ -2278,6 +2333,35 @@ window.TLT = (function () {
             getFlavor: function () {
                 // TODO: Use the existing browserService method here
                 return "w3c";
+            },
+
+            /**
+             * Determines if endpoint is cross-origin
+             * @param {String} endpoint The endpoint needs to be checked.
+             * @param {String} pageURL Current URL.
+             * @returns {boolean} Whether endpoint is cross-origin.
+             */
+            isCrossOrigin: function (endpoint, pageURL) {
+                var isCrossOrigin,
+                    host,
+                    pageURLArray = [];
+
+                if (pageURL) {
+                    pageURLArray = pageURL.split("//");
+                }
+                host = pageURLArray.length > 1 ? pageURLArray[1] : pageURL;
+                if (host) {
+                    host = host.split(":")[0];
+                }
+
+                if (endpoint && host
+                        && (endpoint.match(/^\s*http/) || endpoint.match(/^\s*\/\//))
+                        && !(endpoint.match(host))) {
+                    isCrossOrigin = true;
+                } else {
+                    isCrossOrigin = false;
+                }
+                return isCrossOrigin;
             }
         };  // End of "core"
 
@@ -2289,11 +2373,9 @@ window.TLT = (function () {
      */
     resetInactivityTimer = function () {
         // One time initialization
-        var coreConfig = core.getCoreConfig(),
-            // Tracks the inactivity timeout
-            inactivityTimerId = null,
+        var inactivityTimerId = null,
             // If no inactivityTimeout is configured, the built-in default is 10 minutes (600000 milliseconds)
-            inactivityTimeout = core.utils.getValue(coreConfig, "inactivityTimeout", 600000);
+            inactivityTimeout = utils.getValue(coreConfig, "inactivityTimeout", 600000);
 
         if (!inactivityTimeout) {
             // An inactivityTimeout value of 0 disables this feature.
@@ -2307,7 +2389,7 @@ window.TLT = (function () {
          * @private
          */
         function inactivityTimeoutHandler() {
-            core.utils.clog("UIC self-terminated due to inactivity timeout.");
+            utils.clog("UIC self-terminated due to inactivity timeout.");
             core.destroy();
         }
 
@@ -2333,23 +2415,20 @@ window.TLT = (function () {
      * @see TLT.init
      */
     _init = function (config, callback) {
-        var configService,
-            event,
+        var event,
             webEvent,
-            baseBrowser,
-            browserService,
             cookieModuleConfig,
             queueServiceConfig,
-            ajaxService,
             queues,
             sessionCookieName,
             sessionCookieValue,
             endpointURL,
             killswitchURL,
+            pageURL = null,
             i;
 
         if (initialized) {
-            core.utils.clog("TLT.init() called more than once. Ignoring.");
+            utils.clog("TLT.init() called more than once. Ignoring.");
             return;
         }
 
@@ -2361,10 +2440,20 @@ window.TLT = (function () {
         configService = core.getService("config");
         configService.updateConfig(config);
 
+        // Setup cached service references
+        ajaxService = core.getService("ajax");
+        browserBaseService = core.getService("browserBase");
+        browserService = core.getService("browser");
+        domCaptureService = core.getService("domCapture");
+        queueService = core.getService("queue");
+        serializerService = core.getService("serializer");
+
+        coreConfig = configService.getCoreConfig();
+
         // Check if sessionization cookie value is "DND" indicating kill switch is enabled.
         cookieModuleConfig = configService.getModuleConfig("TLCookie") || {};
         sessionCookieName = cookieModuleConfig.sessionizationCookieName || "TLTSID";
-        sessionCookieValue = core.utils.getCookieValue(sessionCookieName);
+        sessionCookieValue = utils.getCookieValue(sessionCookieName);
         if (sessionCookieValue === "DND") {
             if (state !== "destroyed") {
                 core.destroy();
@@ -2387,28 +2476,27 @@ window.TLT = (function () {
         initialized = true;
         state = "loaded";
 
-        //generate fake load event to send for modules
-        event = {
-            type: 'load',
-            target: window.window,
-            srcElement: window.window,
-            currentTarget: window.window,
-            bubbles: true,
-            cancelBubble: false,
-            cancelable: true,
-            timeStamp: +new Date(),
-            customLoad: true
-        };
+        // Invoke the Overstat Snapshot Extension callback (if any)
+        try {
+            if (typeof TLFExtensionNotify === "function") {
+                TLFExtensionNotify("Initialized");
+            }
+        } catch (e1) {
+        }
 
-        baseBrowser = core.getService("browserBase");
-        webEvent = new baseBrowser.WebEvent(event);
-        core._publishEvent(webEvent);
-
-        ajaxService = core.getService("ajax");
         queueServiceConfig = core.getServiceConfig("queue");
         queues = queueServiceConfig.queues || [];
 
+        if (utils.isLegacyIE || utils.isIE9) {
+            pageURL = utils.getOriginAndPath().origin;
+        }
         for (i = 0; i < queues.length; i += 1) {
+            if (pageURL && core.isCrossOrigin(queues[i].endpoint, pageURL)) {
+                utils.clog("UIC terminated because IE 9 and below doesn't support cross-origin XHR");
+                core.setAutoFlush(false);
+                core.destroy();
+                return;
+            }
             // Killswitch check only if session was newly created.
             if (!sessionCookieValue && cookieModuleConfig.tlAppKey) {
                 endpointURL = queues[i].endpoint;
@@ -2421,20 +2509,25 @@ window.TLT = (function () {
                         async: true,
                         timeout: 5000,
                         oncomplete: function (result) {
-                            if (result.responseText === "0") {
+                            if (result.responseText === "0" || result.data === 0) {
                                 core.setAutoFlush(false);
-                                core.utils.setCookie(sessionCookieName, "DND");
+                                utils.setCookie(sessionCookieName, "DND");
                                 core.destroy();
                             }
                         }
                     });
                 }
             }
-            // Endpoint check
-            if (queues[i].checkEndpoint) {
+            // Endpoint check if sync on unload is enabled.
+            if (queues[i].checkEndpoint && !queueServiceConfig.asyncReqOnUnload) {
+                queueServiceConfig.asyncReqOnUnload = true;
+
                 ajaxService.sendRequest({
                     oncomplete: function (result) {
-                        //do nothing
+                        if (result.success) {
+                            // Switch to asyncReqOnUnload setting specified in the configuration
+                            queueServiceConfig.asyncReqOnUnload = false;
+                        }
                     },
                     timeout: queues[i].endpointCheckTimeout || 3000,
                     url: queues[i].endpoint,
@@ -2448,18 +2541,35 @@ window.TLT = (function () {
                         if (result.success) {
                             return;
                         }
-                        core.setAutoFlush(false);
-                        core.destroy();
+                        // Help the queue service remember if the endpoint check has failed.
+                        queueServiceConfig.endpointCheckFailed = true;
                     }
                 });
             }
         }
 
+        //generate fake load event to send for modules
+        event = {
+            type: 'load',
+            target: window.window,
+            srcElement: window.window,
+            currentTarget: window.window,
+            bubbles: true,
+            cancelBubble: false,
+            cancelable: true,
+            timeStamp: +new Date(),
+            customLoad: true
+        };
+
+        webEvent = new browserBaseService.WebEvent(event);
+        core._publishEvent(webEvent);
+
+        // Notify callback function if any...
         if (typeof _callback === "function") {
             // Protect against unexpected exceptions since _callback is 3rd party code.
             try {
                 _callback("initialized");
-            } catch (e) {
+            } catch (e2) {
                 // Do nothing!
             }
         }
@@ -2492,10 +2602,16 @@ window.TLT = (function () {
 
     return core;
 }());
+
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -2503,7 +2619,7 @@ window.TLT = (function () {
  * @exports TLT.utils
  */
 
-/*global TLT, window*/
+/*global TLT, window, URLSearchParams*/
 /*jshint loopfunc:true*/
 
 (function () {
@@ -2519,6 +2635,10 @@ window.TLT = (function () {
             // W3 Navigation timing spec. supported from IE 9 onwards.
             var isNavTimingSupported = !!window.performance;
             return (_isIE && (!isNavTimingSupported || document.documentMode < 9));
+        }()),
+
+        _isIE9 = (function () {
+            return (_isIE && document.documentMode === 9);
         }()),
 
         _isAndroid = (ua.indexOf("android") !== -1),
@@ -2573,6 +2693,11 @@ window.TLT = (function () {
              * compatibility mode.
              */
             isLegacyIE: _isLegacyIE,
+
+            /**
+             * Indicates if browser is IE 9.
+             */
+            isIE9: _isIE9,
 
             /**
              * Indicates if the browser is based on an Android platform device.
@@ -2801,7 +2926,7 @@ window.TLT = (function () {
                             if (typeof target[prop] === "undefined") {
                                 target[prop] = {};
                             }
-                            utils.extend(deep, target[prop], src[prop]);
+                            this.extend(deep, target[prop], src[prop]);
                         } else {
                             target[prop] = src[prop];
                         }
@@ -2829,7 +2954,7 @@ window.TLT = (function () {
                     copy = (Object.prototype.toString.call(obj) === "[object Array]") ? [] : {};
                     for (attr in obj) {
                         if (Object.prototype.hasOwnProperty.call(obj, attr)) {
-                            copy[attr] = utils.clone(obj[attr]);
+                            copy[attr] = this.clone(obj[attr]);
                         }
                     }
                     return copy;
@@ -2866,6 +2991,9 @@ window.TLT = (function () {
              */
             isEqual: function (a, b) {
                 var i,
+                    isEqual,
+                    prop,
+                    swap,
                     len;
 
                 if (a === b) {
@@ -2874,8 +3002,10 @@ window.TLT = (function () {
                 if (typeof a !== typeof b) {
                     return false;
                 }
-                if (a instanceof Object) {
-                    if (Object.prototype.toString.call(a) === "[object Array]") {
+                if (a instanceof Object && b instanceof Object) {
+                    // Array
+                    if (Object.prototype.toString.call(a) === "[object Array]" &&
+                            Object.prototype.toString.call(b) === "[object Array]") {
                         if (a.length !== b.length) {
                             return false;
                         }
@@ -2886,9 +3016,52 @@ window.TLT = (function () {
                         }
                         return true;
                     }
+                    // Object
+                    if (Object.prototype.toString.call(a) === "[object Object]" &&
+                            Object.prototype.toString.call(b) === "[object Object]") {
+                        for (i = 0; i < 2; i += 1) {
+                            for (prop in a) {
+                                if (a.hasOwnProperty(prop)) {
+                                    if (!b.hasOwnProperty(prop)) {
+                                        return false;
+                                    }
+                                    isEqual = this.isEqual(a[prop], b[prop]);
+                                    if (!isEqual) {
+                                        return false;
+                                    }
+                                }
+                            }
+                            swap = a;
+                            a = b;
+                            b = swap;
+                        }
+                        return true;
+                    }
                 }
                 return false;
             },
+
+            /**
+             * Calculates and returns the normalized (X, Y) values of the mouse/touch position relative to the
+             * target elements (top, left) position.
+             * @function
+             * @param {Object} info object {x: val, y: val, width: val, height: val}
+             * containing event x, y relative to element topLeft, width and height of element
+             * @return String value of relative X & Y. Default in case of error or negative values is "0.5,0.5"
+             */
+            calculateRelativeXY: function (info) {
+                if (utils.isUndefOrNull(info) || utils.isUndefOrNull(info.x) || utils.isUndefOrNull(info.y) || utils.isUndefOrNull(info.width) || utils.isUndefOrNull(info.height)) {
+                    return "0.5,0.5";
+                }
+                var relX = Math.abs(info.x / info.width).toFixed(4),
+                    relY = Math.abs(info.y / info.height).toFixed(4);
+
+                relX = relX > 1 || relX < 0 ? 0.5 : relX;
+                relY = relY > 1 || relY < 0 ? 0.5 : relY;
+
+                return relX + "," + relY;
+            },
+
 
             /**
              *
@@ -2954,7 +3127,7 @@ window.TLT = (function () {
                 var retVal = false;
 
                 // Sanity check
-                if (utils.isUndefOrNull(character) || character === "") {
+                if (utils.isUndefOrNull(character) || !(/\S/.test(character))) {
                     return retVal;
                 }
 
@@ -2965,8 +3138,8 @@ window.TLT = (function () {
             /**
              * Checks if a given character is uppercase.
              * @param  {String}  character The character to test.
-             * @return {Boolean}      Returns true if the character is uppercase.
-             *                        Otherwise false.
+             * @return {Boolean} Returns true if the character is uppercase.
+             *                   Otherwise false.
              */
             isUpperCase: function (character) {
                 return character === character.toUpperCase() &&
@@ -2976,19 +3149,119 @@ window.TLT = (function () {
             /**
              * Checks if a given character is lowercase.
              * @param  {String}  character The character to test.
-             * @return {Boolean}      Returns true if the character is lowercase.
-             *                        Otherwise false.
+             * @return {Boolean} Returns true if the character is lowercase.
+             *                   Otherwise false.
              */
             isLowerCase: function (character) {
                 return character === character.toLowerCase() &&
                         character !== character.toUpperCase();
             },
 
-            getDocument: function (node) {
-                if (node && node.nodeType !== 9) {
-                    return (!utils.isUndefOrNull(node.ownerDocument)) ? (node.ownerDocument) : (node.document);
+            /**
+             * Builds an object of key => value pairs of HTTP headers from a string.
+             * @param {String} headers The string of HTTP headers separated by newlines
+             * (i.e.: "Content-Type: text/html\nLast-Modified: ..")
+             * @return {Object} Returns an object where every key is a header and
+             * every value it's corresponding value.
+             */
+            extractResponseHeaders: function (headers) {
+                var headersObj = {},
+                    i,
+                    len,
+                    header = null;
+
+                // Sanity check
+                if (!headers || !headers.length) {
+                    headers = [];
+                } else {
+                    headers = headers.split('\n');
                 }
-                return node;
+
+                for (i = 0, len = headers.length; i < len; i += 1) {
+                    header = headers[i].split(': ');
+                    if (header.length === 2) {
+                        headersObj[header[0]] = header[1];
+                    }
+                }
+                return headersObj;
+            },
+
+            /**
+             *
+             */
+            getTargetState: function (target) {
+                var tagnames = {
+                        "a": ["innerText", "href"],
+                        "input": {
+                            "range": ["maxValue:max", "value"],
+                            "checkbox": ["value", "checked"],
+                            "radio": ["value", "checked"],
+                            "image": ["src"]
+                        },
+                        "select": ["value"],
+                        "button": ["value", "innerText"],
+                        "textarea": ["value"]
+                    },
+                    tagName = this.getTagName(target),
+                    properties = tagnames[tagName] || null,
+                    selectedOption = null,
+                    state = null,
+                    i = 0,
+                    len = 0,
+                    alias = null,
+                    key = "";
+
+                if (properties !== null) {
+                    // For input elements, another level of indirection is required
+                    if (Object.prototype.toString.call(properties) === "[object Object]") {
+                        // default state for input elements is represented by the "value" property
+                        properties = properties[target.type] || ["value"];
+                    }
+                    state = {};
+                    for (key in properties) {
+                        if (properties.hasOwnProperty(key)) {
+                            if (properties[key].indexOf(":") !== -1) {
+                                alias = properties[key].split(":");
+                                state[alias[0]] = target[alias[1]];
+                            } else if (properties[key] === "innerText") {
+                                state[properties[key]] = this.trim(target.innerText || target.textContent);
+                            } else {
+                                state[properties[key]] = target[properties[key]];
+                            }
+                        }
+                    }
+                }
+
+                // Special processing for select lists
+                if (tagName === "select" && target.options && !isNaN(target.selectedIndex)) {
+                    state.index = target.selectedIndex;
+                    if (state.index >= 0 && state.index < target.options.length) {
+                        selectedOption = target.options[target.selectedIndex];
+                        /* Select list value is derived from the selected option's properties
+                         * in the following order:
+                         * 1. value
+                         * 2. label
+                         * 3. text
+                         * 4. innerText
+                         */
+                        state.value = selectedOption.getAttribute("value") || selectedOption.getAttribute("label") || selectedOption.text || selectedOption.innerText;
+                        state.text = selectedOption.text || selectedOption.innerText;
+                    }
+                }
+
+                return state;
+            },
+
+            getDocument: function (node) {
+                var doc = node;
+                if (node && node.nodeType !== 9) {
+                    if (node.getRootNode) {
+                        doc = node.getRootNode();
+                    } else {
+                        doc = node.ownerDocument || node.document;
+                    }
+                }
+                return doc;
             },
 
             getWindow: function (node) {
@@ -3011,7 +3284,17 @@ window.TLT = (function () {
              * @return {Object} Return an object containing the normalized origin and the pathname.
              */
             getOriginAndPath: function (location) {
-                var retObj = {};
+                var retObj = {},
+                    temp,
+                    search,
+                    searchParams,
+                    isSupported = true,
+                    key,
+                    value,
+                    queryArray = [],
+                    queryParamsTmp = {},
+                    i,
+                    j;
 
                 location = location || window.location;
 
@@ -3026,8 +3309,38 @@ window.TLT = (function () {
 
                 // This is needed for Native hybrid replay to get file path of webview assets used.
                 if (retObj.origin.indexOf("file://") > -1) {
-                    retObj.path = retObj.path.replace(/(.*?)(?=\/[^.\/]*\.app)/g, '').replace('.app//', '.app/');
+                    temp = retObj.path.match(/(.*)(\/.*app.*)/);
+                    if (temp !== null) {
+                        retObj.path = temp[2];
+                    }
                 }
+
+                // Analyze query params from url
+                search = location.search || "";
+                try {
+                    searchParams = new URLSearchParams(search);
+                } catch (error) {
+                    isSupported = false;
+                }
+                if (isSupported) {
+                    searchParams.forEach(function (value, key) {
+                        queryParamsTmp[key] = value;
+                    });
+                } else {
+                    // URLSearchParams is not supported, parse queries manually
+                    if (search.length > 1 && search.charAt(0) === '?') {
+                        queryArray = decodeURIComponent(search).substring(1).split("&");
+                    }
+                    for (i = 0; i < queryArray.length; i += 1) {
+                        j = queryArray[i].indexOf("=");
+                        if (j > -1) {
+                            key = queryArray[i].substring(0, j);
+                            value = queryArray[i].substring(j + 1);
+                            queryParamsTmp[key] = value;
+                        }
+                    }
+                }
+                retObj.queryParams = queryParamsTmp;
 
                 return retObj;
             },
@@ -3224,14 +3537,16 @@ window.TLT = (function () {
              * @param {integer} [maxAge] The max age of the cookie in seconds. If none is specified, defaults to creating a session cookie.
              * @param {string} [path] The absolute path. If none is specified, defaults to "/"
              * @param {string} [domain] The domain on which to set the cookie. If none is specified, defaults to location.hostname
+             * @param {Boolean} [secure] If the secure flag should be set for this cookie.
              */
-            setCookie: function (cookieName, cookieValue, maxAge, path, domain) {
+            setCookie: function (cookieName, cookieValue, maxAge, path, domain, secure) {
                 var i,
                     len,
                     domainArray,
                     expiry,
                     maxAgeStr = "",
-                    pathStr;
+                    pathStr,
+                    secureStr = secure ? ";secure" : "";
 
                 // Sanity check
                 if (!cookieName) {
@@ -3257,10 +3572,15 @@ window.TLT = (function () {
 
                 // Try to set the cookie with two domain components. e.g. "ibm.com".
                 // If not successful try with three domain components, e.g. "ibm.co.uk" and so on.
-                for (i = 2, len = domainArray.length; i <= len; i += 1) {
-                    document.cookie = cookieName + "=" + cookieValue + ";domain=" + domainArray.slice(-i).join('.') + pathStr + maxAgeStr;
+                for (len = domainArray.length, i = (len === 1 ? 1 : 2); i <= len; i += 1) {
+                    document.cookie = cookieName + "=" + cookieValue + ";domain=" + domainArray.slice(-i).join('.') + pathStr + maxAgeStr + secureStr;
                     if (this.getCookieValue(cookieName) === cookieValue) {
                         break;
+                    }
+                    if (len === 1) {
+                        // Special case when trying to set cookie on single component domain fails.
+                        // Try to set the cookie without explicitly specifying the domain.
+                        document.cookie = cookieName + "=" + cookieValue + pathStr + maxAgeStr + secureStr;
                     }
                 }
             },
@@ -3393,13 +3713,14 @@ window.TLT = (function () {
             matchTarget: function (rules, target) {
                 var i,
                     j,
+                    domElement,
                     matchIndex = -1,
                     qr,
                     qrLen,
                     qrTarget,
-                    regex,
                     len,
-                    rule;
+                    rule,
+                    scope = document;
 
                 // Sanity check
                 if (!rules || !target) {
@@ -3411,12 +3732,18 @@ window.TLT = (function () {
                     this.browserBaseService = TLT.getService("browserBase");
                 }
 
+                if (target.idType === -2) {
+                    // Get the document scope of xpath ids since the elements could be inside a frame/iframe
+                    domElement = this.browserBaseService.getNodeFromID(target.id, target.idType);
+                    scope = this.getDocument(domElement);
+                }
+
                 for (i = 0, len = rules.length; i < len && matchIndex === -1; i += 1) {
                     rule = rules[i];
 
                     // Check if rule is a selector string.
                     if (typeof rule === "string") {
-                        qr = this.browserService.queryAll(rule);
+                        qr = this.browserService.queryAll(rule, scope);
                         for (j = 0, qrLen = qr ? qr.length : 0; j < qrLen; j += 1) {
                             if (qr[j]) {
                                 qrTarget = this.browserBaseService.ElementData.prototype.examineID(qr[j]);
@@ -3426,7 +3753,7 @@ window.TLT = (function () {
                                 }
                             }
                         }
-                    } else if (rule && rule.id && rule.idType && target.idType.toString() === rule.idType.toString()) {
+                    } else if (rule && rule.id && rule.idType && target.idType && target.idType.toString() === rule.idType.toString()) {
                         // Note: idType provided by wizard is a string so convert both to strings before comparing.
 
                         // An id in the rules list could be a direct match, in which case it will be a string OR
@@ -3439,8 +3766,13 @@ window.TLT = (function () {
                             }
                             break;
                         case "object":
-                            regex = new RegExp(rule.id.regex, rule.id.flags);
-                            if (regex.test(target.id)) {
+                            if (!rule.cRegex) {
+                                // Cache the RegExp object for future use.
+                                rule.cRegex = new RegExp(rule.id.regex, rule.id.flags);
+                            }
+                            // Reset and test
+                            rule.cRegex.lastIndex = 0;
+                            if (rule.cRegex.test(target.id)) {
                                 matchIndex = i;
                             }
                             break;
@@ -3504,10 +3836,16 @@ window.TLT = (function () {
     TLT.utils = utils;
 
 }());
+
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -3614,9 +3952,14 @@ window.TLT = (function () {
 
 }());
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -3758,7 +4101,23 @@ TLT.ModuleContext = (function () {
          * @function
          * @returns {integer} Returns the recorded timestamp in milliseconds corresponding to when the TLT object was created.
          */
-        "getStartTime"
+        "getStartTime",
+
+        /**
+         * @name normalizeUrl
+         * @memberOf TLT.ModuleContext#
+         * @function
+         * @returns {String} Returns normalized url of custom function provided by config.
+         */
+        "normalizeUrl",
+
+        /**
+         * @name getSessionStart
+         * @memberOf TLT.ModuleContext#
+         * @function
+         * @returns {object} Returns session start.
+         */
+        "getSessionStart"
     ];
 
     /**
@@ -3814,9 +4173,14 @@ TLT.ModuleContext = (function () {
 
 }());
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -3901,7 +4265,6 @@ TLT.addService("config", function (core) {
              * @return {Object} The service configuration object or an empty object if the named service doesn't exist.
              */
             getServiceConfig: function (serviceName) {
-                // XXX - Return empty object {} instead of null and correct all places where this is being called.
                 return config.services[serviceName] || {};
             },
             /**
@@ -3919,10 +4282,10 @@ TLT.addService("config", function (core) {
             /**
              * Returns the configuration object for a given module.
              * @param {String} moduleName The name of the module to retrieve configuration information for.
-             * @return {Object|null} The module configuration object or null if the named module doesn't exist.
+             * @return {Object} The module configuration object or empty object if the named module doesn't exist.
              */
             getModuleConfig: function (moduleName) {
-                return config.modules[moduleName] || null;
+                return config.modules[moduleName] || {};
             },
             /**
              * Assigns the configuration for the named module. All calls are assumed to be diffs
@@ -3949,9 +4312,14 @@ TLT.addService("config", function (core) {
 
 });
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -3989,6 +4357,17 @@ TLT.addService("queue", function (core) {
         queueTimers  = {},      // timer id for the queueTick
         autoFlushing = true,    // Bool, indicates whether to flush queues when
                                 // threshold is reached or let the application control flushing.
+        delayFlushOnClick = true,  // Delay flushing incase it is the final click on the page before unload.
+        msgCounter   = {
+            5: {
+                limit: 300,
+                count: 0
+            },
+            6: {
+                limit: 400,
+                count: 0
+            }
+        },
         xhrLog       = [],
         isInitialized = false,
         queueManager = (function () {
@@ -4029,6 +4408,7 @@ TLT.addService("queue", function (core) {
                         url: opts.url,
                         eventThreshold: opts.eventThreshold,
                         sizeThreshold: opts.sizeThreshold || 0,
+                        timerInterval: opts.timerInterval,
                         // Set the size to -1 so it doesn't trigger a flush if no sizeThreshold is specified
                         size: -1,
                         serializer: opts.serializer,
@@ -4368,13 +4748,13 @@ TLT.addService("queue", function (core) {
      * @param  {String} queueId The id of the queue to be flushed.
      */
     function flushQueue(queueId, sync) {
-        var data = queueManager.flush(queueId),
+        var queue = queueManager.get(queueId),
+            data = queue.url ? queueManager.flush(queueId) : null,
             count = data ? data.length : 0,
-            queue = queueManager.get(queueId),
             httpHeaders = {
                 "Content-Type": "application/json",
                 "X-PageId": core.getPageId(),
-                "X-Tealeaf": "device (UIC) Lib/5.3.0.1788",
+                "X-Tealeaf": "device (UIC) Lib/5.6.0.1875",
                 "X-TealeafType": "GUI",
                 "X-TeaLeaf-Page-Url": getUrlPath(),
                 "X-Tealeaf-SyncXHR": (!!sync).toString()
@@ -4386,6 +4766,8 @@ TLT.addService("queue", function (core) {
             requestData,
             retObj,
             timeDiff,
+            tltWorker = CONFIG.tltWorker,
+            workerMsg,
             xdomainFrameWindow = null;
 
         if (!count || !queue) {
@@ -4419,62 +4801,84 @@ TLT.addService("queue", function (core) {
             data.log = {
                 xhr: xhrLog
             };
-        }
 
-        // Serialize the data
-        if (serializer) {
-            data = sS.serialize(data, serializer);
-        }
-
-        // Encode if specified
-        if (contentEncoder) {
-            retObj = eS.encode(data, contentEncoder);
-            if (retObj) {
-                if (retObj.data && !retObj.error) {
-                    data = retObj.data;
-                    httpHeaders["Content-Encoding"] = retObj.encoding;
-                } else {
-                    data = retObj.error;
-                }
+            // Log if endpoint check failed
+            if (CONFIG.endpointCheckFailed) {
+                data.log.endpointCheckFailed = true;
             }
         }
 
         getExternalRequestHeaders();
         copyHeaders(queueId, httpHeaders);
 
-        if (queue.crossDomainEnabled) {
-            xdomainFrameWindow = utils.getIFrameWindow(queue.crossDomainIFrame);
-            if (!xdomainFrameWindow) {
-                return;
+        // Check if the TLT Web Worker is available and we are not trying to make a sync request
+        if (tltWorker && !sync) {
+            tltWorker.onmessage = function (event) {
+                var result;
+                result = event.data;
+                // XHR Logging update
+                handleXhrCallback(result);
+            };
+            workerMsg = {
+                id: messageId,
+                url: queue.url,
+                headers: httpHeaders,
+                data: data
+            };
+            tltWorker.postMessage(workerMsg);
+        } else {
+            // Serialize the data
+            if (serializer) {
+                data = sS.serialize(data, serializer);
             }
-            requestData = {
-                request: {
+
+            // Encode if specified
+            if (contentEncoder) {
+                retObj = eS.encode(data, contentEncoder);
+                if (retObj) {
+                    if (retObj.data && !retObj.error) {
+                        data = retObj.data;
+                        httpHeaders["Content-Encoding"] = retObj.encoding;
+                    } else {
+                        data = retObj.error;
+                    }
+                }
+            }
+
+            if (queue.crossDomainEnabled) {
+                xdomainFrameWindow = utils.getIFrameWindow(queue.crossDomainIFrame);
+                if (!xdomainFrameWindow) {
+                    return;
+                }
+                requestData = {
+                    request: {
+                        id: messageId,
+                        url: queue.url,
+                        async: !sync,
+                        headers: httpHeaders,
+                        data: data
+                    }
+                };
+
+                if (typeof window.postMessage === "function") {
+                    xdomainFrameWindow.postMessage(requestData, queue.crossDomainIFrame.src);
+                } else {
+                    try {
+                        xdomainFrameWindow.sendMessage(requestData);
+                    } catch (e) {
+                        return;
+                    }
+                }
+            } else {
+                aS.sendRequest({
                     id: messageId,
+                    oncomplete: handleXhrCallback,
                     url: queue.url,
                     async: !sync,
                     headers: httpHeaders,
                     data: data
-                }
-            };
-
-            if (!utils.isIE && typeof window.postMessage === "function") {
-                xdomainFrameWindow.postMessage(requestData, queue.crossDomainIFrame.src);
-            } else {
-                try {
-                    xdomainFrameWindow.sendMessage(requestData);
-                } catch (e) {
-                    return;
-                }
+                });
             }
-        } else {
-            aS.sendRequest({
-                id: messageId,
-                oncomplete: handleXhrCallback,
-                url: queue.url,
-                async: !sync,
-                headers: httpHeaders,
-                data: data
-            });
         }
         clearHeaders(queueId);
     }
@@ -4507,7 +4911,8 @@ TLT.addService("queue", function (core) {
      * @param {Object} data    The message event which should be stored in the queue.
      */
     function addToQueue(queueId, data) {
-        var len,
+        var currWebEvent,
+            len,
             msg = mS.createMessage(data),
             queue = queueManager.get(queueId),
             size,
@@ -4529,8 +4934,52 @@ TLT.addService("queue", function (core) {
 
         if ((len >= queue.eventThreshold || size >= queue.sizeThreshold) &&
                 autoFlushing && core.getState() !== "unloading") {
-            flushQueue(queueId);
+            currWebEvent = core.getCurrentWebEvent();
+            if (currWebEvent.type === "click" && !CONFIG.ddfoc) {
+                // set the timer if a delayed flush has not already been scheduled
+                if (delayFlushOnClick) {
+                    delayFlushOnClick = false;
+                    window.setTimeout(function () {
+                        if (queueManager.exists(queueId)) {
+                            flushQueue(queueId);
+                            delayFlushOnClick = true;
+                        }
+                    }, 500);
+                }
+            } else {
+                flushQueue(queueId);
+            }
         }
+    }
+
+    function isMsgLimitReached(e) {
+        var counter,
+            retVal = false;
+
+        // Sanity check
+        if (!e || !e.type) {
+            return true;
+        }
+
+        counter = msgCounter[e.type];
+        if (counter) {
+            counter.count += 1;
+            if (counter.count > counter.limit) {
+                retVal = true;
+                if (counter.count === counter.limit + 1) {
+                    // Log a message when limit is exceeded for the first time.
+                    addToQueue("DEFAULT", {
+                        type: 16,
+                        dataLimit: {
+                            messageType: e.type,
+                            maxCount: counter.limit
+                        }
+                    });
+                }
+            }
+        }
+
+        return retVal;
     }
 
     /**
@@ -4563,27 +5012,52 @@ TLT.addService("queue", function (core) {
     }
 
 
-    function setTimer(qid, interval) {
+    function setFlushTimer(qid, interval) {
         queueTimers[qid] = window.setTimeout(function tick() {
-            flushQueue(qid);
+            if (autoFlushing) {
+                flushQueue(qid);
+            }
             queueTimers[qid] = window.setTimeout(tick, interval);
         }, interval);
     }
 
+    function clearFlushTimer(qid) {
+        var cleared = false;
 
-    function clearTimers() {
+        if (qid && queueTimers[qid]) {
+            window.clearTimeout(queueTimers[qid]);
+            delete queueTimers[qid];
+            cleared = true;
+        }
+        return cleared;
+    }
+
+    function clearAllFlushTimers() {
         var key = 0;
 
         for (key in queueTimers) {
             if (queueTimers.hasOwnProperty(key)) {
-                window.clearTimeout(queueTimers[key]);
-                delete queueTimers[key];
+                clearFlushTimer(key);
             }
         }
 
         queueTimers = {};
     }
 
+    function resetFlushTimer(qid) {
+        var queue;
+
+        if (!qid) {
+            return;
+        }
+
+        if (clearFlushTimer(qid)) {
+            queue = queueManager.get(qid);
+            if (queue.timerInterval) {
+                setFlushTimer(qid, queue.timerInterval);
+            }
+        }
+    }
 
     /**
      * Handles the configupdated event from the configService and reinitialize all queues.
@@ -4633,7 +5107,7 @@ TLT.addService("queue", function (core) {
             });
 
             if (typeof conf.timerInterval !== "undefined" && conf.timerInterval > 0) {
-                setTimer(conf.qid, conf.timerInterval);
+                setFlushTimer(conf.qid, conf.timerInterval);
             }
         });
 
@@ -4648,7 +5122,7 @@ TLT.addService("queue", function (core) {
         }
         cS.unsubscribe("configupdated", handleConfigUpdated);
 
-        clearTimers();
+        clearAllFlushTimers();
         queueManager.reset();
 
         CONFIG = null;
@@ -4721,21 +5195,45 @@ TLT.addService("queue", function (core) {
          * @param  {String} [queueId]    Specifies the ID of the queue to receive the event.
          */
         post: function (moduleName, queueEvent, queueId) {
+            if (!core.isInitialized()) {
+                return;
+            }
+
             queueId = queueId || getQueueId(moduleName);
 
             if (!queueManager.exists(queueId)) {
                 return;
             }
-            addToQueue(queueId, queueEvent);
+            if (!isMsgLimitReached(queueEvent)) {
+                addToQueue(queueId, queueEvent);
+            }
+        },
+
+        /**
+         * Resets the flush timer of the specified queue.
+         * @param {String} queueId The ID of the queue
+         */
+        resetFlushTimer: function (queueId) {
+            queueId = queueId || defaultQueue.qid;
+            if (!queueManager.exists(queueId)) {
+                return;
+            }
+            resetFlushTimer(queueId);
         }
+
     };
 
 });
 
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -4761,33 +5259,37 @@ TLT.addService("browserBase", function (core) {
             nobr: true
         },
         queryDom = {},
-        configService = core.getService("config"),
+        configService,
         serializerService = null,
         config,
         blacklist,
         customid,
-        getXPathFromNode,
+        getXPathListFromNode,
         isInitialized = false;
 
     function updateConfig() {
         configService = core.getService("config");
         serializerService = core.getService("serializer");
-        config = core.getService("config").getServiceConfig("browser") || {};
+        // Need to check for configService in unit testing scenario
+        config = configService ? configService.getServiceConfig("browser") : {};
         blacklist = config.hasOwnProperty("blacklist") ? config.blacklist : [];
         customid = config.hasOwnProperty("customid") ? config.customid : [];
     }
 
     function initBrowserBase() {
         updateConfig();
-        configService.subscribe("configupdated", updateConfig);
-        serializerService = core.getService("serializer");
-
+        if (configService) {
+            // Need to check for configService in unit testing scenario
+            configService.subscribe("configupdated", updateConfig);
+        }
         isInitialized = true;
     }
 
     function destroy() {
-        configService.unsubscribe("configupdated", updateConfig);
-
+        if (configService) {
+            // Need to check for configService in unit testing scenario
+            configService.unsubscribe("configupdated", updateConfig);
+        }
         isInitialized = false;
     }
 
@@ -4806,8 +5308,13 @@ TLT.addService("browserBase", function (core) {
                     return false;
                 }
             } else if (typeof blacklist[i] === "object") {
-                re = new RegExp(blacklist[i].regex, blacklist[i].flags);
-                if (re.test(node.id)) {
+                // Cache the RegExp object
+                if (!blacklist[i].cRegex) {
+                    blacklist[i].cRegex = new RegExp(blacklist[i].regex, blacklist[i].flags);
+                }
+                // Reset and test
+                blacklist[i].cRegex.lastIndex = 0;
+                if (blacklist[i].cRegex.test(node.id)) {
                     return false;
                 }
             }
@@ -4917,7 +5424,7 @@ TLT.addService("browserBase", function (core) {
      * Generates an XPath for a given node
      * @function
      */
-    getXPathFromNode = (function () {
+    getXPathListFromNode = (function () {
 
         var specialChildNodes = {
                 "nobr": true,
@@ -4925,99 +5432,167 @@ TLT.addService("browserBase", function (core) {
             };
 
         /**
-         * Returns Xpath string for a node
+         * Returns Xpath array for a node
          * @private
          * @param {Element} node DOM element
-         * @return {string} xpath string
+         * @param {Boolean} wantFullPath Return full xpath or truncate at parent with HTML ID.
+         * @param {Boolean} notInDocument Indicates if the node is part of a cloned subtree not attached to the document.
+         * @return {Array} xpath array
          */
-        function getXPathArrayFromNode(node, wantFullPath) {
+        return function (node, wantFullPath, notInDocument) {
             var i,
                 j,
+                documentElement = document.documentElement,
                 idValid = false,
-                tmp_child = null,
-                parent_window = null,
-                parent_node = null,
+                tmpChild = null,
+                parentWindow = null,
+                parentNode = null,
                 xpath = [],
+                xpathComponent,
                 loop = true,
                 localTop = core._getLocalTop(),
-                tagName = "";
+                tagName = "",
+                setHost = false,
+                shadowRoot;
 
             while (loop) {
+                // Need to continue the loop incase of elements in frame/iframe and shadow trees.
                 loop = false;
 
-                if (!utils.isUndefOrNull(node)) {
-                    tagName = utils.getTagName(node);
-                    if (!utils.isUndefOrNull(tagName)) {
-                        // Hack fix to handle tags that are not normally visual elements
-                        if (specialChildNodes.hasOwnProperty(tagName)) {
-                            node = node.parentNode;
-                            tagName = utils.getTagName(node);
-                        }
+                tagName = utils.getTagName(node);
+                if (tagName && !setHost) {
+                    // Fix to handle tags that are not normally visual elements
+                    if (specialChildNodes[tagName]) {
+                        node = node.parentNode;
+                        loop = true;
+                        continue;
                     }
-                    for (idValid = checkId(node);
-                            node !== document && (!idValid || wantFullPath);
-                            idValid = checkId(node)) {
-                        parent_node = node.parentNode;
-                        if (!parent_node) {
-                            parent_window = core.utils.getWindow(node);
-                            if (!parent_window) {
-                                // node is not attached to any window
-                                return xpath;
-                            }
-                            parent_node = (parent_window !== localTop) ? parent_window.frameElement : document;
-                        }
+                }
 
-                        tmp_child = parent_node.firstChild;
-                        if (typeof tmp_child === "undefined") {
-                            return xpath;
-                        }
+                // Get xpath for node or iframe
+                for (idValid = checkId(node);
+                        node && (node.nodeType === 1 || node.nodeType === 9) && node !== document && (wantFullPath || !idValid);
+                        idValid = checkId(node)) {
+                    parentNode = node.parentNode;
 
-                        for (j = 0; tmp_child; tmp_child = tmp_child.nextSibling) {
-                            if (tmp_child.nodeType === 1 && utils.getTagName(tmp_child) === tagName) {
-                                if (tmp_child === node) {
-                                    xpath[xpath.length] = [tagName, j];
-                                    break;
-                                }
-                                j += 1;
-                            }
+                    // If the node has no parent, check if it is a frame element
+                    if (!parentNode) {
+                        parentWindow = utils.getWindow(node);
+                        if (!parentWindow || notInDocument) {
+                            // node is not attached to any window
+                            xpathComponent = [tagName, 0];
+                            xpath[xpath.length] = xpathComponent;
+                            return xpath.reverse();
                         }
-                        node = parent_node;
+                        if (parentWindow === localTop) {
+                            // node is attached to top window but doesn't have a parent.
+                            return xpath.reverse();
+                        }
+                        // node is a frame/iframe
+                        node = parentWindow.frameElement;
                         tagName = utils.getTagName(node);
+                        parentNode = node.parentNode;
+                        continue;
                     }
 
-                    if (idValid && !wantFullPath) {
-                        xpath[xpath.length] = [node.id];
-                        if (core.utils.isIFrameDescendant(node)) {
-                            loop = true;
-                            node = core.utils.getWindow(node).frameElement;
+                    tmpChild = parentNode.firstChild;
+                    // Sanity check: Parent has no children?
+                    if (!tmpChild) {
+                        xpath.push(["XPath Error(1)"]);
+                        node = null;
+                        break;
+                    }
+
+                    // Calculate the index of the node amongst its siblings
+                    for (j = 0; tmpChild; tmpChild = tmpChild.nextSibling) {
+                        if (tmpChild.nodeType === 1 && utils.getTagName(tmpChild) === tagName) {
+                            if (tmpChild === node) {
+                                xpathComponent = [tagName, j];
+                                if (setHost) {
+                                    xpathComponent.push("h");
+                                    setHost = false;
+                                }
+                                xpath[xpath.length] = xpathComponent;
+                                break;
+                            }
+                            j += 1;
                         }
                     }
+
+                    if (parentNode.nodeType === 11) {
+                        node = parentNode.host;
+                        setHost = true;
+                    } else {
+                        node = parentNode;
+                    }
+
+                    tagName = utils.getTagName(node);
+                }
+
+                if (idValid && !wantFullPath) {
+                    xpathComponent = [node.id];
+                    if (setHost) {
+                        xpathComponent.push("h");
+                        setHost = false;
+                    }
+                    xpath[xpath.length] = xpathComponent;
+                    // For elements within a frame/iframe continue the loop after resetting node to the frame element in the parent DOM
+                    if (utils.isIFrameDescendant(node)) {
+                        loop = true;
+                        node = utils.getWindow(node).frameElement;
+                    } else if (!notInDocument && !documentElement.contains(node)) {
+                        // For elements within a Shadow DOM tree, continue the loop after resetting node to the shadow host element.
+                        loop = true;
+                        shadowRoot = node.getRootNode();
+                        node = shadowRoot.host;
+                        setHost = true;
+                    }
                 }
             }
 
-            return xpath;
-        }
-
-        // actual getXPathFromNode function
-        return function (node, wantFullPath) {
-            var xpath = getXPathArrayFromNode(node, !!wantFullPath),
-                parts = [],
-                i = xpath.length;
-
-            if (i < 1) {
-                return "null";
-            }
-            while (i) {
-                i -= 1;
-                if (xpath[i].length > 1) {
-                    parts[parts.length] = '["' + xpath[i][0] + '",' + xpath[i][1] + "]";
-                } else {
-                    parts[parts.length] = '[' + serializerService.serialize(xpath[i][0], "json") + ']';
-                }
-            }
-            return ("[" + parts.join(",") + "]");
+            return xpath.reverse();
         };
     }());
+
+    /**
+     *
+     */
+    function xpathListToString(list) {
+        var str = "null";
+
+        // Sanity check
+        if (!list || !list.length) {
+            return str;
+        }
+
+        str = serializerService.serialize(list, "json");
+
+        return str;
+    }
+
+    /**
+     * Returns the Xpath for a node.
+     * @private
+     * @param {Element} node DOM element
+     * @param {Boolean} [wantFullPath] Return full xpath or truncate at parent with HTML ID.
+     * @param {Boolean} [wantObject] Return xpath as a JS object or as a string.
+     * @param {Boolean} [notInDocument] Indicates if the node is part of a cloned subtree not attached to the document.
+     * @return {String} Returns the xpath of the node.
+     */
+    function getXPathFromNode(node, wantFullPath, wantObject, notInDocument) {
+        var retVal,
+            xpath;
+
+        xpath = getXPathListFromNode(node, !!wantFullPath, !!notInDocument);
+
+        if (wantObject) {
+            retVal = xpath;
+        } else {
+            retVal = xpathListToString(xpath);
+        }
+
+        return retVal;
+    }
 
     /**
      * Returns the scroll position (left, top) of the document
@@ -5089,10 +5664,12 @@ TLT.addService("browserBase", function (core) {
      */
     function normalizeEvent(event) {
         var e = event || window.event,
+            eventPath,
             doc = document.documentElement,
             body = document.body,
             found = false,
             foundElement = null,
+            tagName,
             i = 0;
 
         // skip jQuery event wrapper
@@ -5118,17 +5695,15 @@ TLT.addService("browserBase", function (core) {
             };
         }
 
-        // Chrome case getting blur for inner elements sending click
-        if (window.chrome && e.path !== undefined && e.type === "click") {
-            if (e.path.length === undefined) {
-                return e;
-            }
-
-            for (i = 0; i < e.path.length; i++) {
-                if (utils.getTagName(e.path[i]) === "button") {
+        // ???: Chrome case getting blur for inner elements sending click
+        if (e.type === "click") {
+            eventPath = e.composedPath ? e.composedPath() : [];
+            for (i = 0; i < eventPath.length; i += 1) {
+                tagName = utils.getTagName(eventPath[i]);
+                if (tagName === "button") {
                     found = true;
-                    foundElement = e.path[i];
-                    i = e.path.length;
+                    foundElement = eventPath[i];
+                    break;
                 }
             }
             if (found) {
@@ -5137,8 +5712,8 @@ TLT.addService("browserBase", function (core) {
                     target: foundElement,
                     srcElement: foundElement,
                     type: e.type,
-                    pageX: document.body.scrollLeft + foundElement.getBoundingClientRect().left,
-                    pageY: document.body.scrollTop + foundElement.getBoundingClientRect().top
+                    pageX: e.pageX,
+                    pageY: e.pageY
                 };
             }
         }
@@ -5148,48 +5723,63 @@ TLT.addService("browserBase", function (core) {
 
     /**
      * Normalizes target element. In case of touch event the target is considered to be an
-     * element for whch the last action took place
+     * element on which the last touch action took place.
      * @private
      * @param {UIEvent} event browser event
-     * @return {Element} DOM element
+     * @return {Element} Normalized target element
      */
     function normalizeTarget(event) {
-        var itemSource = null;
+        var i, len,
+            eventPath,
+            target = null;
 
-        if (!event) {
+        // Sanity check
+        if (!event || !event.type) {
             return null;
         }
 
-        if (event.srcElement) {
+        // Special handling for touchXXX events
+        if (event.type.indexOf("touch") === 0) {
+            target = getEventDetails(event).target;
+        } else if (typeof event.composedPath === "function") {
+            // Event.composedPath() returns the full path including shadow trees (if any)
+            eventPath = event.composedPath();
+            if (eventPath && eventPath.length) {
+                target = eventPath[0];
+                if (config.normalizeTargetToNearestLink) {
+                    // Switch target to the link element in the path (if any)
+                    for (i = 0, len = eventPath.length; i < len; i += 1) {
+                        if (utils.getTagName(eventPath[i]) === "a") {
+                            target = eventPath[i];
+                            break;
+                        }
+                    }
+                }
+            } else {
+                target = event.target || window.window;
+            }
+        } else if (event.srcElement) {
             // IE
-            itemSource = event.srcElement;
+            target = event.srcElement;
         } else {
             // W3C
-            itemSource = event.target;
-            if (!itemSource) {
-                // Mozilla only (non-standard)
-                itemSource = event.explicitOriginalTarget;
+            target = event.target;
+        }
+
+        while (target && nonClickableTags[utils.getTagName(target)]) {
+            if (target.parentElement) {
+                target = target.parentElement;
+            } else {
+                break;
             }
-            if (!itemSource) {
-                // Mozilla only (non-standard)
-                itemSource = event.originalTarget;
-            }
         }
 
-        if (!itemSource && event.type.indexOf("touch") === 0) {
-            itemSource = getEventDetails(event).target;
+        // If target is a document then retarget to its documentElement
+        if (target.nodeType === 9 && target.documentElement) {
+            target = target.documentElement;
         }
 
-        while (itemSource && nonClickableTags[utils.getTagName(itemSource)]) {
-            itemSource = itemSource.parentNode;
-        }
-
-        // IE when srcElement pointing to window
-        if (!itemSource && event.srcElement === null) {
-            itemSource = window.window;
-        }
-
-        return itemSource;
+        return target;
     }
 
 
@@ -5238,6 +5828,7 @@ TLT.addService("browserBase", function (core) {
         var xpath = null,
             elem,
             pathElem = null,
+            pathElemIsHost = false,
             tagName,
             i,
             j,
@@ -5260,7 +5851,9 @@ TLT.addService("browserBase", function (core) {
 
         for (i = 0, len = xpath.length; i < len && elem; i += 1) {
             pathElem = xpath[i];
-            if (pathElem.length === 1) {
+            pathElemIsHost = pathElem.length > 1 && pathElem[pathElem.length - 1] === "h";
+            if (pathElem.length === 1 || (pathElem.length === 2 && pathElemIsHost)) {
+                // HTML ID component
                 if (scope.getElementById) {
                     elem = scope.getElementById(pathElem[0]);
                 } else if (scope.querySelector) {
@@ -5269,6 +5862,7 @@ TLT.addService("browserBase", function (core) {
                     elem = null;
                 }
             } else {
+                // Search in children
                 for (j = 0, k = -1, jlen = elem.childNodes.length; j < jlen; j += 1) {
                     if (elem.childNodes[j].nodeType === 1 && utils.getTagName(elem.childNodes[j]) === pathElem[0].toLowerCase()) {
                         k += 1;
@@ -5278,8 +5872,23 @@ TLT.addService("browserBase", function (core) {
                         }
                     }
                 }
-                if (k === -1) {
+                if (k !== pathElem[1]) {
                     return null;
+                }
+            }
+
+            if (!elem) {
+                return null;
+            }
+
+            if (pathElemIsHost) {
+                if (i < len - 1) {
+                    if (!elem.shadowRoot) {
+                        return null;
+                    }
+                    elem = elem.shadowRoot;
+                    // The scope for the subsequent xpath changes to that of the shadow root document fragment.
+                    scope = elem;
                 }
             }
 
@@ -5306,8 +5915,8 @@ TLT.addService("browserBase", function (core) {
      * @param {Integer} y The y-coordinate of the point.
      */
     function Point(x, y) {
-        this.x = x || 0;
-        this.y = y || 0;
+        this.x = Math.round(x || 0);
+        this.y = Math.round(y || 0);
     }
 
 
@@ -5351,6 +5960,7 @@ TLT.addService("browserBase", function (core) {
         this.subType = elementType.subType;
         this.state = this.examineState(target);
         this.position = new Point(pos.x, pos.y);
+        this.position.relXY = pos.relXY;
         this.size = new Size(pos.width, pos.height);
         this.xPath = id.xPath;
         this.name = id.name;
@@ -5373,56 +5983,59 @@ TLT.addService("browserBase", function (core) {
      * @function
      * @name browserService-ElementData.examineID
      * @param  {Object} target The HTML element which received the event.
-     * @return {Object}        Returns an object with the properties id and type.
+     * @param {Boolean} [notInDocument] Indicates if the node is part of a cloned subtree not attached to the document.
+     * @return {Object} Returns an object with the properties id and type.
      *      id contains either a css or xpath selector.
-     *      type contains a reference to either ElementData.HTML_ID,
-     *      ElementData.XPATH_ID or ElementData.ATTRIBUTE_ID
-     * @todo determine the element css/xpath/attribute selector.
+     *      type contains a reference to either ElementData.HTML_ID, ElementData.XPATH_ID or ElementData.ATTRIBUTE_ID
      */
-    ElementData.prototype.examineID = function (target) {
-        var id,
-            type,
-            xPath,
-            attribute_id,
-            name,
+    ElementData.prototype.examineID = function (target, notInDocument) {
+        var retObj = {
+                id: "",
+                idType: 0,
+                xPath: "",
+                name: ""
+            },
             i = customid.length,
-            attrib;
+            attrib,
+            contained,
+            documentElement = document.documentElement;
+
+        // Sanity check
+        if (!target) {
+            return retObj;
+        }
+
+        retObj.xPath = getXPathFromNode(target, false, false, notInDocument);
+        retObj.name = target.name;
 
         try {
-            xPath = getXPathFromNode(target);
-        } catch (e) { }
-        name = target.name;
-
-        try {
-            // Check if node belongs to Frame/Iframe since such nodes always get Xpath IDs
-            if (!core.utils.getWindow(target) || !core.utils.isIFrameDescendant(target)) {
+            contained = typeof documentElement.contains === "function" ? documentElement.contains(target) : true;
+            // Check if node belongs to a Shadow DOM tree or Frame/Iframe since such nodes always get Xpath IDs
+            if ((notInDocument || contained) && (!utils.getWindow(target) || !utils.isIFrameDescendant(target))) {
                 if (checkId(target)) {
-                    id = target.id;
-                    type = ElementData.HTML_ID;
+                    retObj.id = target.id;
+                    retObj.idType = ElementData.HTML_ID;
                 } else if (customid.length && target.attributes) {
                     while (i) {
                         i -= 1;
                         attrib = target.attributes[customid[i]];
                         if (typeof attrib !== "undefined") {
-                            id = customid[i] + "=" + (attrib.value || attrib);
-                            type = ElementData.ATTRIBUTE_ID;
+                            retObj.id = customid[i] + "=" + (attrib.value || attrib);
+                            retObj.idType = ElementData.ATTRIBUTE_ID;
                         }
                     }
                 }
             }
-        } catch (e2) { }
+        } catch (e) { }
 
-        if (!id) {
-            id = xPath;
-            type = ElementData.XPATH_ID;
+        if (!retObj.id) {
+            retObj.id = retObj.xPath;
+            if (retObj.id !== "null") {
+                retObj.idType = ElementData.XPATH_ID;
+            }
         }
 
-        return {
-            id: id,
-            idType: type,
-            xPath: xPath,
-            name: name
-        };
+        return retObj;
     };
 
 
@@ -5433,69 +6046,9 @@ TLT.addService("browserBase", function (core) {
      * @param  {Object} target The HTML element which received the event.
      * @return {Object}        Returns an object which contains all properties
      *     to describe the state.
-     * @todo determine the current state.
      */
     ElementData.prototype.examineState = function (target) {
-        var tagnames = {
-                "a": ["innerText", "href"],
-                "input": {
-                    "range": ["maxValue:max", "value"],
-                    "checkbox": ["value", "checked"],
-                    "radio": ["value", "checked"],
-                    "image": ["src"]
-                },
-                "select": ["value"],
-                "button": ["value", "innerText"],
-                "textarea": ["value"]
-            },
-            tagName = utils.getTagName(target),
-            properties = tagnames[tagName] || null,
-            selectedOption = null,
-            values = null,
-            i = 0,
-            len = 0,
-            alias = null,
-            key = "";
-
-        if (properties !== null) {
-            // For input elements, another level of indirection is required
-            if (Object.prototype.toString.call(properties) === "[object Object]") {
-                // default state for input elements is represented by the "value" property
-                properties = properties[target.type] || ["value"];
-            }
-            values = {};
-            for (key in properties) {
-                if (properties.hasOwnProperty(key)) {
-                    if (properties[key].indexOf(":") !== -1) {
-                        alias = properties[key].split(":");
-                        values[alias[0]] = target[alias[1]];
-                    } else if (properties[key] === "innerText") {
-                        values[properties[key]] = core.utils.trim(target.innerText || target.textContent);
-                    } else {
-                        values[properties[key]] = target[properties[key]];
-                    }
-                }
-            }
-        }
-
-        // Special processing for select lists
-        if (tagName === "select" && target.options && !isNaN(target.selectedIndex)) {
-            values.index = target.selectedIndex;
-            if (values.index >= 0 && values.index < target.options.length) {
-                selectedOption = target.options[target.selectedIndex];
-                /* Select list value is derived from the selected option's properties
-                 * in the following order:
-                 * 1. value
-                 * 2. label
-                 * 3. text
-                 * 4. innerText
-                 */
-                values.value = selectedOption.getAttribute("value") || selectedOption.getAttribute("label") || selectedOption.text || selectedOption.innerText;
-                values.text = selectedOption.text || selectedOption.innerText;
-            }
-        }
-
-        return values;
+        return utils.getTargetState(target);
     };
 
 
@@ -5518,7 +6071,6 @@ TLT.addService("browserBase", function (core) {
             try {
                 rect = document.body.getBoundingClientRect();
             } catch (e) {
-                core.utils.clog("getBoundingClientRect failed.", e);
                 return factor;
             }
             physicalW = rect.right - rect.left;
@@ -5552,7 +6104,6 @@ TLT.addService("browserBase", function (core) {
             rect = element.getBoundingClientRect();
             scrollPos = getDocScrollPosition(document);
         } catch (e) {
-            core.utils.clog("getBoundingClientRect failed.", e);
             return { x: 0, y: 0, width: 0, height: 0 };
         }
         rectangle = {
@@ -5562,7 +6113,7 @@ TLT.addService("browserBase", function (core) {
             width: rect.right - rect.left,
             height: rect.bottom - rect.top
         };
-        if (core.utils.isIE) {
+        if (utils.isIE) {
             // IE ONLY: the bounding rectangle include the top and left borders of the client area
             rectangle.x -= document.documentElement.clientLeft;
             rectangle.y -= document.documentElement.clientTop;
@@ -5594,6 +6145,8 @@ TLT.addService("browserBase", function (core) {
         elPos.x = (posOnDoc.x || posOnDoc.y) ? Math.round(Math.abs(posOnDoc.x - elPos.x)) : elPos.width / 2;
         elPos.y = (posOnDoc.x || posOnDoc.y) ? Math.round(Math.abs(posOnDoc.y - elPos.y)) : elPos.height / 2;
 
+        elPos.relXY = utils.calculateRelativeXY(elPos);
+
         return elPos;
     };
 
@@ -5618,7 +6171,7 @@ TLT.addService("browserBase", function (core) {
          * certain Android devices do not adhere to the standards.
          * e.g. Some tablets report portrait orientation = 90 and landscape = 0
          */
-        if (core.utils.isLandscapeZeroDegrees) {
+        if (utils.isLandscapeZeroDegrees) {
             if (Math.abs(orientation) === 180 || Math.abs(orientation) === 0) {
                 orientation = 90;
             } else if (Math.abs(orientation) === 90) {
@@ -5743,116 +6296,21 @@ TLT.addService("browserBase", function (core) {
      *
      */
     function processDOMEvent(event) {
-        core._publishEvent(new WebEvent(event));
-    }
-
-    /**
-      * Returns Xpath list for a node
-      * @private
-      * @param {Element} node DOM element
-      * @return {string} xpath string
-      */
-    function getXpathListFromNode(node, wantFullPath) {
-        var i,
-            j,
-            idValid = false,
-            tmp_child = null,
-            parent_window = null,
-            parent_node = null,
-            xpath = [],
-            loop = true,
-            localTop = core._getLocalTop(),
-            tagName = "";
-
-        while (loop) {
-            loop = false;
-
-            if (utils.isUndefOrNull(node)) {
-                break;
-            }
-
-            tagName = utils.getTagName(node);
-            if (!utils.isUndefOrNull(tagName)) {
-                // Fix to handle tags that are not normally visual elements
-                if (getXpathListFromNode.specialChildNodes.hasOwnProperty(tagName)) {
-                    node = node.parentNode;
-                    // Continue back to the while loop.
-                    loop = true;
-                    continue;
-                }
-            }
-
-            for (idValid = checkId(node);
-                    node !== document && (!idValid || wantFullPath);
-                    idValid = checkId(node)) {
-                parent_node = node.parentNode;
-                if (!parent_node) {
-                    parent_window = core.utils.getWindow(node);
-                    if (!parent_window || node.nodeType !== 9) {
-                        // node is not attached to any window
-                        xpath.push([tagName, 0]);
-                        break;
-                    }
-                    parent_node = (parent_window !== localTop) ? parent_window.frameElement : document;
-                }
-
-                tmp_child = parent_node.firstChild;
-                if (typeof tmp_child === "undefined") {
-                    // No children?
-                    break;
-                }
-
-                for (j = 0; tmp_child; tmp_child = tmp_child.nextSibling) {
-                    if (tmp_child.nodeType === 1 && utils.getTagName(tmp_child) === tagName) {
-                        if (tmp_child === node) {
-                            xpath[xpath.length] = [tagName, j];
-                            break;
-                        }
-                        j += 1;
-                    }
-                }
-                node = parent_node;
-                tagName = utils.getTagName(node);
-            }
-
-            if (idValid && !wantFullPath) {
-                xpath[xpath.length] = [node.id];
-                if (core.utils.isIFrameDescendant(node)) {
-                    loop = true;
-                    node = core.utils.getWindow(node).frameElement;
-                }
-            }
+        if (core.isInitialized()) {
+            core._publishEvent(new WebEvent(event));
+        } else {
         }
-
-        // Reverse the array to get the xpath in the right order.
-        xpath.reverse();
-
-        return xpath;
-    }
-
-    getXpathListFromNode.specialChildNodes = {
-        "nobr": true,
-        "p": true
-    };
-
-    function xpathListToString(list) {
-        var str;
-
-        if (!list || !list.length) {
-            return null;
-        }
-
-        str = serializerService.serialize(list, "json");
-
-        return str;
     }
 
     /**
      * Constructor
+     * @param {DOMElement} node DOM element.
+     * @param {Boolean} [notInDocument] Indicates if the node is part of a cloned subtree not attached to the document.
      */
-    function Xpath(node) {
+    function Xpath(node, notInDocument) {
         var fullXpath = "",
             fullXpathList = [],
+            topElem,
             xpath = "",
             xpathList = [];
 
@@ -5861,7 +6319,8 @@ TLT.addService("browserBase", function (core) {
             return null;
         }
 
-        if (typeof node !== "object") {
+        // Sanity check
+        if (typeof node !== "object" || !node.nodeType) {
             this.fullXpath = "";
             this.xpath = "";
             this.fullXpathList = [];
@@ -5869,12 +6328,18 @@ TLT.addService("browserBase", function (core) {
             return;
         }
 
+        // Text nodes are promoted to their parent element
+        if (node.nodeType === 3) {
+            node = node.parentElement;
+        }
+
         // Calculate xpath list from DOM node
-        xpathList = getXpathListFromNode(node, false);
+        xpathList = getXPathListFromNode(node, false, notInDocument);
 
         // Check if the topmost xpath element is an HTML ID. If so, we need to compute the full xpath.
-        if (xpathList.length && xpathList[0].length === 1) {
-            fullXpathList = getXpathListFromNode(node, true);
+        topElem = xpathList[0];
+        if (xpathList.length && (topElem.length === 1 || (topElem.length === 2 && topElem[1] === "h"))) {
+            fullXpathList = getXPathListFromNode(node, true, notInDocument);
         } else {
             fullXpathList = utils.clone(xpathList);
         }
@@ -5953,11 +6418,16 @@ TLT.addService("browserBase", function (core) {
         };
 
         /**
-         *
+         * Checks to see if the node defined by this xpath is a child of the given parent xpath.
+         * @function
+         * @param {Object} parentXpath Parent node XPath object
+         * @param {Boolean} [ignoreShadows] Optional flag indicating if the containment check should consider
+         *        xpaths as contained within a parent even though the child is in a Shadow DOM.
+         * @returns {Boolean} Returns true if the xpath is contained within the parent xpath, false otherwise.
          */
-        this.containedIn = function (parentXpath) {
-            var i,
-                len;
+        this.containedIn = function (parentXpath, ignoreShadows) {
+            var i, j, len,
+                tmpNode;
 
             // Sanity check
             if (!(parentXpath instanceof Xpath)) {
@@ -5971,6 +6441,17 @@ TLT.addService("browserBase", function (core) {
             for (i = 0, len = parentXpath.fullXpathList.length; i < len; i += 1) {
                 if (!utils.isEqual(parentXpath.fullXpathList[i], this.fullXpathList[i])) {
                     return false;
+                }
+            }
+
+            if (!ignoreShadows) {
+                // Check if the remainder of the node is within a Shadow DOM in which case
+                // it is not directly contained in the DOM of the parent.
+                for (j = i, len = this.fullXpathList.length; j < len; j += 1) {
+                    tmpNode = this.fullXpathList[j];
+                    if (tmpNode[tmpNode.length - 1] === "h") {
+                        return false;
+                    }
                 }
             }
 
@@ -6004,8 +6485,8 @@ TLT.addService("browserBase", function (core) {
         processDOMEvent: processDOMEvent,
         getNormalizedOrientation: getNormalizedOrientation,
 
-        getXPathFromNode: function (moduleName, node, wantFullPath, wantObject) {
-            return getXPathFromNode(node, wantFullPath, wantObject);
+        getXPathFromNode: function (moduleName, node, wantFullPath, wantObject, notInDocument) {
+            return getXPathFromNode(node, wantFullPath, wantObject, notInDocument);
         },
         getNodeFromID: getNodeFromID,
         queryDom: queryDom
@@ -6013,9 +6494,14 @@ TLT.addService("browserBase", function (core) {
 
 });
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -6034,13 +6520,15 @@ TLT.addService("browserBase", function (core) {
 TLT.addService("browser", function (core) {
     "use strict";
 
-    var configService = core.getService("config"),
+    var utils = core.utils,
+        configService = core.getService("config"),
         browserBaseService = core.getService('browserBase'),
         ajaxService = core.getService('ajax'),
         addEventListener = null,
         removeEventListener = null,
-        serviceConfig = configService.getServiceConfig("browser") || {},
-        useCapture = (serviceConfig.useCapture === true),
+        // Need to test for configService in unit testing scenario
+        serviceConfig = configService ? configService.getServiceConfig("browser") : {},
+        useCapture = utils.getValue(serviceConfig, "useCapture", true),
         isInitialized = false,
         errorCodes = {
             NO_QUERY_SELECTOR: "NOQUERYSELECTOR"
@@ -6125,9 +6613,8 @@ TLT.addService("browser", function (core) {
                 var self = this,
                     message = null,
                     bodyEl = document.getElementsByTagName("body")[0],
-                    bConfig = configService.getServiceConfig("browser") || {},
-                    jQuery = bConfig.hasOwnProperty("jQueryObject") ? core.utils.access(bConfig.jQueryObject) : window.jQuery,
-                    sizzle = bConfig.hasOwnProperty("sizzleObject") ? core.utils.access(bConfig.sizzleObject) : window.Sizzle;
+                    jQuery = serviceConfig.jQueryObject ? utils.access(serviceConfig.jQueryObject) : window.jQuery,
+                    sizzle = serviceConfig.sizzleObject ? utils.access(serviceConfig.sizzleObject) : window.Sizzle;
 
                 if (typeof document.querySelectorAll === "undefined") {
                     // redefine self.css to use self.Sizzle as selector engine.
@@ -6152,7 +6639,7 @@ TLT.addService("browser", function (core) {
                                     };
                                 }
                             } catch (e2) {
-                                core.fail("Sizzle was not found", errorCodes.NO_QUERY_SELECTOR);
+                                core.fail("Neither querySelectorAll nor Sizzle was found.", errorCodes.NO_QUERY_SELECTOR);
                             }
                         }
                     }
@@ -6168,7 +6655,7 @@ TLT.addService("browser", function (core) {
         },
         // store handler functions which got passed to subscribe/unsubscribe.
         handlerMappings = (function () {
-            var data = new core.utils.WeakMap();
+            var data = new utils.WeakMap();
 
             return {
                 add: function (originalHandler) {
@@ -6197,11 +6684,27 @@ TLT.addService("browser", function (core) {
         }());
 
     /**
+     * Check if required browser APIs are available.
+     */
+    function verifyPrerequisites() {
+        var jQuery = serviceConfig.jQueryObject ? utils.access(serviceConfig.jQueryObject) : window.jQuery,
+            sizzle = serviceConfig.sizzleObject ? utils.access(serviceConfig.sizzleObject) : window.Sizzle;
+
+        if (!document.querySelectorAll && !jQuery && !sizzle) {
+            // Neither native querySelectorAll nor jQuery nor Sizzle is available. Abort!
+            core.fail("querySelectorAll does not exist!", errorCodes.NO_QUERY_SELECTOR);
+        }
+    }
+
+    /**
      * Initialization function
      * @function
      */
     function initBrowserServiceW3C() {
         queryDom.xpath = browserBaseService.queryDom.xpath;
+
+        // Check if dependencies exist.
+        verifyPrerequisites();
 
         if (typeof document.addEventListener === 'function') {
             addEventListener = function (target, eventName, handler) {
@@ -6256,10 +6759,10 @@ TLT.addService("browser", function (core) {
          */
         query: function (query, scope, type) {
             try {
-				return queryDom.find(query, scope, type)[0] || null;
-			} catch (err) {
-				return [];
-			}
+                return queryDom.find(query, scope, type)[0] || null;
+            } catch (err) {
+                return [];
+            }
         },
 
         /**
@@ -6272,12 +6775,12 @@ TLT.addService("browser", function (core) {
          * @return {Object[]|Array}       An array of HTML elements matching the query
          *     or and empty array if no elements are matching.
          */
-		queryAll: function (query, scope, type) {
+        queryAll: function (query, scope, type) {
             try {
-				return queryDom.find(query, scope, type);
-			} catch (err) {
-				return [];
-			}
+                return queryDom.find(query, scope, type);
+            } catch (err) {
+                return [];
+            }
         },
 
         /**
@@ -6311,9 +6814,14 @@ TLT.addService("browser", function (core) {
     };
 });
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /*global TLT:true, window:true, ActiveXObject, Uint8Array */
@@ -6325,8 +6833,10 @@ TLT.addService("browser", function (core) {
 TLT.addService("ajax", function (core) {
     "use strict";
 
-    var getXHRObject,
+    var utils = core.utils,
+        getXHRObject,
         useBeacon = false,
+        useFetch = false,
         isInitialized = false;
 
     /**
@@ -6375,26 +6885,6 @@ TLT.addService("ajax", function (core) {
     }
 
     /**
-     * Builds an object of key => value pairs of HTTP headers from a string.
-     * @param  {String} headers The string of HTTP headers separated by newlines
-     *      (i.e.: "Content-Type: text/html\nLast-Modified: ..")
-     * @return {Object}         Returns an object where every key is a header
-     *     and every value it's correspondending value.
-     */
-    function extractResponseHeaders(headers) {
-        headers = headers.split('\n');
-        var headersObj = {},
-            i = 0,
-            len = headers.length,
-            header = null;
-        for (i = 0; i < len; i += 1) {
-            header = headers[i].split(': ');
-            headersObj[header[0]] = header[1];
-        }
-        return headersObj;
-    }
-
-    /**
      * @private
      * @function
      * @name ajaxService-makeBeaconCall
@@ -6414,6 +6904,119 @@ TLT.addService("ajax", function (core) {
         retVal = navigator.sendBeacon(message.url + query, data);
 
         return retVal;
+    }
+
+    /**
+     * @private
+     * @function
+     * @name ajaxService-makeFetchRequest
+     * @see browserService.sendRequest
+     */
+    function makeFetchRequest(message) {
+        var headers = message.headers || {},
+            msgId = message.id || 0,
+            oncomplete = message.oncomplete || function () {};
+
+        headers["X-Requested-With"] = "fetch";
+
+        window.fetch(message.url, {
+            method: message.type,
+            headers: headers,
+            body: message.data,
+            mode: "cors",
+            //keepalive: true,   // keepalive is not supported for cors requests requiring prefetch
+            cache: "no-store"
+        }).then(function (response) {
+            var result = {
+                success: response.ok,
+                statusCode: response.status,
+                statusText: response.statusText,
+                id: msgId
+            };
+
+            if (result.success) {
+                response.json().then(function (responseData) {
+                    result.data = responseData;
+                    oncomplete(result);
+                })["catch"](function (e) {
+                    // NOTE: YUICompressor incompatibility with .catch resolved by using ["catch"]
+                    result.statusCode = 1;
+                    result.statusText = e.message;
+                    oncomplete(result);
+                });
+            }
+        })["catch"](function (e) {
+            // NOTE: YUICompressor incompatibility with .catch resolved by using ["catch"]
+            var result = {
+                success: false,
+                statusCode: 2,
+                statusText: e.message,
+                id: msgId
+            };
+            oncomplete(result);
+        });
+    }
+
+    /**
+     * This function returns a function which can be passed to the XHR object
+     * as a callback handler. It will call the callback with the correct
+     * ajaxResponse interface.
+     * @private
+     * @function
+     * @name ajaxService.w3c-wrapAjaxResponse
+     * @param {Function} origCallback The original callback function which
+     *        should be invoked when the request finishes with a normalized
+     *        result object.
+     * @return {Function} A function which could be passed as a callback
+     *         handler to the XHR object.
+     */
+    function wrapAjaxResponse(origCallback) {
+
+        // Sanity check
+        if (typeof origCallback !== "function") {
+            return;
+        }
+
+        /**
+         * Calls the ajax callback function and provides the ajaxResponse in the correct format.
+         * This Function gets called by the XHR callback method.
+         * @private
+         * @function
+         * @name ajaxService.w3c-wrapAjaxResponse-ajaxResponseHandler
+         * @param {Object} event The DOM event object or the Ajax response object in case of a
+         *        direct call to the callback function.
+         */
+        return function ajaxResponseHandler(event) {
+            var xhr,
+                status,
+                success = false;
+
+            // Sanity check
+            if (!event) {
+                return;
+            }
+
+            xhr = event.target;
+            if (!xhr) {
+                // Synthetic call to the callback function
+                return origCallback(event);
+            }
+
+            status = xhr.status;
+            if (status >= 200 && status < 300) {
+                success = true;
+            }
+
+            // Invoke original callback method with normalized response object
+            origCallback({
+                headers: utils.extractResponseHeaders(xhr.getAllResponseHeaders()),
+                responseText: xhr.responseText,
+                statusCode: status,
+                statusText: xhr.statusText,
+                id: xhr.id,
+                success: success
+            });
+        };
     }
 
     /**
@@ -6447,6 +7050,11 @@ TLT.addService("ajax", function (core) {
             }
         }
 
+        if (message.error) {
+            message.error = wrapAjaxResponse(message.error);
+            xhr.addEventListener("error", message.error);
+        }
+
         xhr.onreadystatechange = callbackFn = function () {
             if (xhr.readyState === 4) {
                 xhr.onreadystatechange = callbackFn = function () {};
@@ -6455,7 +7063,7 @@ TLT.addService("ajax", function (core) {
                 }
                 message.oncomplete({
                     id: message.id,
-                    headers: extractResponseHeaders(xhr.getAllResponseHeaders()),
+                    headers: utils.extractResponseHeaders(xhr.getAllResponseHeaders()),
                     responseText: (xhr.responseText || null),
                     statusCode: xhr.status,
                     statusText: xhr.statusText,
@@ -6489,7 +7097,7 @@ TLT.addService("ajax", function (core) {
                 // oncomplete is called after success and error callbacks
                 message.oncomplete({
                     id: message.id,
-                    headers: extractResponseHeaders(xhr.getAllResponseHeaders()),
+                    headers: utils.extractResponseHeaders(xhr.getAllResponseHeaders()),
                     responseText: (xhr.responseText || null),
                     statusCode: xhr.status,
                     statusText: "timeout",
@@ -6514,8 +7122,14 @@ TLT.addService("ajax", function (core) {
             };
         }
 
-        // Enable Beacon use if configured
-        useBeacon = !!queueServiceConfig.useBeacon && (typeof navigator.sendBeacon === "function");
+        // queueServiceConfig can be null for tealeaf.frame.js
+        if (queueServiceConfig) {
+            // Enable Beacon use if configured
+            useBeacon = utils.getValue(queueServiceConfig, "useBeacon", true) && (typeof navigator.sendBeacon === "function");
+
+            // Enable Fetch use if supported
+            useFetch = utils.getValue(queueServiceConfig, "useFetch", true) && (typeof window.fetch === "function");
+        }
 
         isInitialized = true;
     }
@@ -6535,8 +7149,8 @@ TLT.addService("ajax", function (core) {
         },
 
         /**
-         * Makes an Ajax request to the server.
-         * @param {Object} message An AjaxRequest object containing all the information
+         * Makes a HTTP network request to the server.
+         * @param {Object} message A request object containing all the information
          *     neccessary for making the request.
          * @param {String} [message.contentType] Set to a string to override the default
          *     content type of the request.
@@ -6553,27 +7167,41 @@ TLT.addService("ajax", function (core) {
          */
         sendRequest: function (message) {
             var unloading = core.getState() === "unloading",
+                makeXHRRequest = true,
                 retVal;
 
             message.type = message.type || "POST";
 
-            // If enabled, use Beacon API instead of XHR on page unload
-            if (unloading && useBeacon) {
+            // If enabled, use Beacon API instead of XHR on page unload or when sending synchronous request
+            if ((unloading || !message.async) && useBeacon) {
+                makeXHRRequest = false;
                 retVal = makeBeaconCall(message);
                 if (!retVal) {
                     // If Beacon fails, fallback to XHR
+                    makeXHRRequest = true;
+                }
+            }
+
+            if (makeXHRRequest) {
+                if (message.async && useFetch && !message.timeout) {
+                    // Use fetch instead of async XHR
+                    makeFetchRequest(message);
+                } else {
                     makeAjaxCall(message);
                 }
-            } else {
-                makeAjaxCall(message);
             }
         }
     };
 });
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -6582,7 +7210,7 @@ TLT.addService("ajax", function (core) {
  * @exports domCaptureService
  */
 
-/*global TLT:true, window: true, Node:true */
+/*global TLT:true, window: true, Node:true, performance:true, Element */
 /*global console: false */
 
 /**
@@ -6594,9 +7222,13 @@ TLT.addService("domCapture", function (core) {
 
     var configService = core.getService("config"),
         browserBaseService = core.getService("browserBase"),
+        browserService = core.getService("browser"),
         messageService,
         dcServiceConfig,
         dcDefaultOptions = {
+            maxMutations: 100,
+            maxLength: 1000000,
+            captureShadowDOM: false,
             captureFrames: false,
             removeScripts: true,
             removeComments: true
@@ -6612,6 +7244,8 @@ TLT.addService("domCapture", function (core) {
         diffObserver,
         diffObserverConfig = defaultDiffObserverConfig,
         observedWindowList = [],
+        observedShadowHostList = [],
+        shadowEventList = [],
         mutatedTargets = [],
         mutatedAttrTargets = [],
         mutationCount = 0,
@@ -6623,6 +7257,7 @@ TLT.addService("domCapture", function (core) {
         dupNode = function () {},
         getDOMCapture = function () {},
         updateConfig = function () {},
+        publishEvent = core._publishEvent,
         utils = core.utils;
 
     /**
@@ -6776,7 +7411,8 @@ TLT.addService("domCapture", function (core) {
         var i, j, k,
             len,
             found,
-            target;
+            target,
+            isParent;
 
         // For removals, we only track the number of removed nodes
         xpath.removedNodes = mutationRecord.removedNodes.length;
@@ -6803,7 +7439,17 @@ TLT.addService("domCapture", function (core) {
 
                 // Remove the target xpath entry if there are no mutations to keep track of.
                 if (!target.removedNodes && !target.addedNodes.length) {
-                    mutatedTargets.splice(i, 1);
+                    isParent = false;
+                    for (j = 0;  j < mutatedTargets.length; j += 1) {
+                        if (target !== mutatedTargets[j] && mutatedTargets[j].containedIn(target)) {
+                            isParent  = true;
+                            break;
+                        }
+                    }
+
+                    if (!isParent) {
+                        mutatedTargets.splice(i, 1);
+                    }
                 }
 
                 found = true;
@@ -6881,7 +7527,7 @@ TLT.addService("domCapture", function (core) {
         // If the attribute is "value" check if privacy masking needs to be applied
         if (attributeName === "value") {
             target = browserBaseService.ElementData.prototype.examineID(mutationRecord.target);
-            target.currState = browserBaseService.ElementData.prototype.examineState(mutationRecord.target) || {};
+            target.currState = utils.getTargetState(mutationRecord.target) || {};
             if (target.currState.value) {
                 messageService.applyPrivacyToTarget(target);
             } else {
@@ -7006,8 +7652,12 @@ TLT.addService("domCapture", function (core) {
      * @param {object} config
      */
     function initDOMCaptureService(config) {
-        var i,
-            len;
+        var i, len,
+            module,
+            event,
+            eventList,
+            isCaptureShadowDOMEnabled,
+            coreConfig = configService.getCoreConfig();
 
         configService.subscribe("configupdated", updateConfig);
         messageService = core.getService("message");
@@ -7024,6 +7674,31 @@ TLT.addService("domCapture", function (core) {
             diffObserver = initDOMDiffObserver();
             // Add the main window to be observed.
             observedWindowList.push(window);
+        }
+
+        isCaptureShadowDOMEnabled = dcServiceConfig.options.captureShadowDOM = false;
+
+        // Only browsers having native Shadow DOM support could work with Shadow DOM Capture and DOM Diff technology.
+        // Disable Shadow DOM Capture if browser doesn't have such support.
+        if (isCaptureShadowDOMEnabled && (Element.prototype.attachShadow || '').toString().indexOf("[native code]") < 0) {
+            dcServiceConfig.options.captureShadowDOM = false;
+        }
+
+        if (isCaptureShadowDOMEnabled) {
+            // Populate the shadowEventList
+            for (module in coreConfig.modules) {
+                if (coreConfig.modules.hasOwnProperty(module)) {
+                    eventList = coreConfig.modules[module].events || [];
+                    for (i = 0, len = eventList.length; i < len; i += 1) {
+                        if (eventList[i].attachToShadows) {
+                            event = eventList[i].name;
+                            if (utils.indexOf(shadowEventList, event) === -1) {
+                                shadowEventList.push(event);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         isInitialized = true;
@@ -7062,21 +7737,37 @@ TLT.addService("domCapture", function (core) {
      * @function
      * @param {DOMNode} node The root or parent DOM Node element
      * @param {String}  tagName The tag to be removed
+     * @param {Array}  [attribute] Optional name, value pair to match the tag on.
      * @returns The node without any tags matching tagName
      */
-    function removeTags(node, tagName) {
+    function removeTags(node, tagName, attribute) {
         var i,
-            nodeList;
+            attrName,
+            attrValue,
+            nodeList,
+            tag;
 
         // Sanity check
         if (!node || !node.getElementsByTagName || !tagName) {
             return;
         }
 
+        if (attribute && attribute.length === 2) {
+            attrName = attribute[0];
+            attrValue = attribute[1];
+        }
+
         nodeList = node.getElementsByTagName(tagName);
         if (nodeList && nodeList.length) {
             for (i = nodeList.length - 1; i >= 0; i -= 1) {
-                nodeList[i].parentNode.removeChild(nodeList[i]);
+                tag = nodeList[i];
+                if (!attrName) {
+                    tag.parentNode.removeChild(tag);
+                } else {
+                    if (tag[attrName] === attrValue) {
+                        tag.parentNode.removeChild(tag);
+                    }
+                }
             }
         }
 
@@ -7115,19 +7806,36 @@ TLT.addService("domCapture", function (core) {
      * Returns the DOCTYPE of the document as a formatted string.
      * @private
      * @function
-     * @param {DOMNode} node A document node.
+     * @param {DOMNode} node A document node or a documentElement node.
      * @returns {String} The formatted doctype or null.
      */
     function getDoctypeAsString(node) {
-        var doctype,
+        var doc,
+            doctype,
             doctypeStr = null;
 
         // Sanity check
-        if (!node || !node.doctype) {
-            return null;
+        if (!node) {
+            return doctypeStr;
         }
 
-        doctype = node.doctype;
+        switch (node.nodeType) {
+        case 1:
+        // ELEMENT
+            doc = node.ownerDocument;
+            // Get doctype from the owner document of a document element node.
+            if (doc && doc.documentElement === node) {
+                doctype = doc.doctype;
+            }
+            break;
+        case 9:
+        // DOCUMENT
+            doctype = node.doctype;
+            break;
+        default:
+            break;
+        }
+
         if (doctype) {
             doctypeStr = "<!DOCTYPE " + doctype.name +
                          (doctype.publicId ? ' PUBLIC "' + doctype.publicId + '"' : "") +
@@ -7277,9 +7985,13 @@ TLT.addService("domCapture", function (core) {
         if (node) {
             nodeType = node.nodeType || -1;
             switch (nodeType) {
+            case 11:
+                // DOCUMENT_FRAGMENT
+                htmlText = node.innerHTML;
+                break;
             case 9:
                 // DOCUMENT_NODE
-                htmlText = node.documentElement.outerHTML;
+                htmlText = node.documentElement ? node.documentElement.outerHTML : "";
                 break;
             case 1:
                 // ELEMENT_NODE
@@ -7364,10 +8076,10 @@ TLT.addService("domCapture", function (core) {
                     try {
                         sourceIframe = sourceIframeList[i];
                         iframeWindow = utils.getIFrameWindow(sourceIframe);
-                        if (iframeWindow && iframeWindow.document) {
+                        if (iframeWindow && iframeWindow.document && iframeWindow.location.href !== "about:blank") {
                             iframeDoc = iframeWindow.document;
 
-                            iframeCapture = getDOMCapture(iframeDoc, iframeDoc, "", options);
+                            iframeCapture = getDOMCapture(iframeDoc, iframeDoc.documentElement || iframeDoc, "", options);
                             iframeID = getUniqueID();
 
                             // Set the tltid for this frame in the target DOM
@@ -7400,6 +8112,91 @@ TLT.addService("domCapture", function (core) {
                     }
                 }
             }
+        }
+        return returnObject;
+    }
+
+    /**
+     * Attach event listeners identified in the shadowEventList to the shadowRoot.
+     * @private
+     * @function
+     * @param {DOMNode} root The shadow root document-fragment
+     */
+    function attachEventListeners(root) {
+        var i, len,
+            event;
+
+        root.TLTListeners = root.TLTListeners || {};
+        for (i = 0, len = shadowEventList.length; i < len; i += 1) {
+            event = shadowEventList[i];
+            if (!root.TLTListeners[event]) {
+                browserService.subscribe(event, root, publishEvent);
+                root.TLTListeners[event] = true;
+            }
+        }
+    }
+
+    /**
+     * Capture Shadow DOM trees from the source and add the unique token to the host element
+     * in the target.
+     * @private
+     * @function
+     * @param {DOMNode} source The source element
+     * @param {DOMNode} target The target element duplicated from the source.
+     * @param {Object}  options The capture options object
+     * @returns {Object} Returns the captured Shadow DOM as per the enabled options.
+     */
+    function getShadowDOM(source, target, options, thisSource) {
+        var i,
+            len,
+            captures,
+            element,
+            elements,
+            hostXpath,
+            returnObject = {
+                shadows: []
+            };
+
+        // Sanity check
+        if (!source || (!thisSource && !source.children)) {
+            return returnObject;
+        }
+
+        if (thisSource) {
+            elements = [ source ];
+        } else {
+            elements = source.children;
+        }
+
+        for (i = 0, len = elements.length; i < len; i += 1) {
+            element = elements[i];
+            if (element.shadowRoot) {
+                hostXpath = new browserBaseService.Xpath(element);
+                captures = getDOMCapture(element.ownerDocument, element.shadowRoot, "", options);
+                returnObject.shadows.push({
+                    root: captures.root,
+                    xpath: hostXpath.xpath
+                });
+                returnObject.shadows = returnObject.shadows.concat(captures.shadows);
+
+                // Attach event listeners
+                attachEventListeners(element.shadowRoot);
+                // Observe Diffs
+                if (diffEnabled) {
+                    try {
+                        diffObserver.observe(element.shadowRoot, diffObserverConfig);
+                        element.shadowRoot.TLTListeners.mutation = true;
+                        // Add element to list of observed Shadow hosts.
+                        if (utils.indexOf(observedShadowHostList, element) === -1) {
+                            observedShadowHostList.push(element);
+                        }
+                    } catch (e) {
+                        utils.clog("Failed to observe shadow root.", e, element);
+                    }
+                }
+            }
+            captures = getShadowDOM(element, null, options);
+            returnObject.shadows = returnObject.shadows.concat(captures.shadows);
         }
         return returnObject;
     }
@@ -7479,6 +8276,55 @@ TLT.addService("domCapture", function (core) {
         }
     }
 
+    function enumerateUntrackedShadows(node) {
+        var i, len,
+            element,
+            elements,
+            shadowList = [];
+
+        if (!node || !node.children) {
+            return shadowList;
+        }
+
+        elements = node.children;
+
+        for (i = 0, len = elements.length; i < len; i += 1) {
+            element = elements[i];
+            if (element.shadowRoot) {
+                if (!element.shadowRoot.TLTListeners) {
+                    shadowList.push([element, element.shadowRoot]);
+                }
+                shadowList = shadowList.concat(enumerateUntrackedShadows(element.shadowRoot));
+            }
+            shadowList = shadowList.concat(enumerateUntrackedShadows(element));
+        }
+        return shadowList;
+    }
+
+    function getUntrackedShadows(doc, options) {
+        var i, len,
+            shadows,
+            retObj,
+            untrackedShadowList;
+
+        // Sanity check
+        if (!doc || !options) {
+            return;
+        }
+
+        if (!options.captureShadowDOM) {
+            return;
+        }
+
+        untrackedShadowList = enumerateUntrackedShadows(doc, options);
+        for (i = 0, len = untrackedShadowList.length, shadows = []; i < len; i += 1) {
+            retObj = getShadowDOM(untrackedShadowList[i][0], null, options, true);
+            shadows = shadows.concat(retObj.shadows);
+        }
+        return shadows;
+    }
+
+
     /**
      * Capture the full DOM starting at the root element as per the provided configuration options.
      * @private
@@ -7489,12 +8335,17 @@ TLT.addService("domCapture", function (core) {
      */
     function getFullDOM(doc, options) {
         var captureObj,
-            urlInfo;
+            urlInfo,
+            shadowRoots,
+            startTime,
+            endTime;
 
-        captureObj = getDOMCapture(doc, doc, null, options);
+
+        captureObj = getDOMCapture(doc, doc.documentElement || doc, null, options);
         if (!captureObj) {
             captureObj = {};
         }
+
 
         // Set the document charset
         captureObj.charset = doc.characterSet || doc.charset;
@@ -7521,9 +8372,12 @@ TLT.addService("domCapture", function (core) {
             len,
             returnObj = {
                 fullDOM: false,
-                diffs: []
+                diffs: [],
+                attributeDiffs: {}
             },
             diff,
+            captureShadowDOM,
+            untrackedShadows,
             target,
             targetXpath;
 
@@ -7532,17 +8386,37 @@ TLT.addService("domCapture", function (core) {
         // Consolidate the DOM Node mutations with the attribute mutations
         consolidateMutationsWithAttributeChanges();
 
+        // Do not capture full Shadow DOM as part of the diff, any untracked Shadow roots will be captured subsequently
+        captureShadowDOM = options.captureShadowDOM;
+        options.captureShadowDOM = false;
+
         // Add the DOM Node mutations
         for (i = 0, len = mutatedTargets.length; i < len; i += 1) {
             targetXpath = mutatedTargets[i];
             target = browserBaseService.getNodeFromID(targetXpath.xpath, -2);
             if (target === window.document.body) {
                 // If diff includes the document body, then send the full DOM instead.
+                options.captureShadowDOM = captureShadowDOM;
                 return getFullDOM(window.document, options);
             }
             diff = getDOMCapture(window.document, target, targetXpath, options);
+            if (diff.shadows && diff.shadows.length === 0) {
+                delete diff.shadows;
+            }
+            if (diff.frames && diff.frames.length === 0) {
+                delete diff.frames;
+            }
             diff.xpath = targetXpath.xpath;
             returnObj.diffs.push(diff);
+        }
+
+        // Helper function to add attribute diffs.
+        function addAttributeDiffs(attribute, index) {
+            // Sanity check
+            if (!attribute || !attribute.name) {
+                return;
+            }
+            returnObj.attributeDiffs[diff.xpath][attribute.name] = { value: attribute.value };
         }
 
         // Add the attribute mutations
@@ -7554,6 +8428,17 @@ TLT.addService("domCapture", function (core) {
                 attributes: removeOldAttrValues(targetXpath.attributes)
             };
             returnObj.diffs.push(diff);
+
+            // Add to the attributeDiffs object
+            returnObj.attributeDiffs[diff.xpath] = {};
+            utils.forEach(diff.attributes, addAttributeDiffs);
+        }
+
+        // Add newly created Shadow DOM roots not being tracked
+        options.captureShadowDOM = captureShadowDOM;
+        untrackedShadows = getUntrackedShadows(window.document, options);
+        if (untrackedShadows && untrackedShadows.length) {
+            returnObj.shadows = untrackedShadows;
         }
 
         return returnObj;
@@ -7596,9 +8481,12 @@ TLT.addService("domCapture", function (core) {
      * @returns {Object} Returns the object containing the captured and serialized DOM.
      */
     getDOMCapture = function (doc, root, rootXpath, options) {
-        var rootCopy,
+        var cloned = true,
+            rootCopy,
             frameCaptureObj,
+            shadowDOMObj,
             captureObj = {},
+            serializedDOM,
             urlInfo;
 
         // Sanity check
@@ -7608,46 +8496,67 @@ TLT.addService("domCapture", function (core) {
 
         // Make a copy of the root because we will be modifying it.
         rootCopy = dupNode(root, doc);
-        if (!rootCopy) {
+        if (!rootCopy && root.host) {
+            // A shadow root cannot be cloned
+            cloned = false;
+        } else if (!rootCopy) {
             // Could not copy the root node
             return captureObj;
         }
 
-        // Remove script tags
-        if (!!options.removeScripts) {
-            removeTags(rootCopy, "script");
-            removeTags(rootCopy, "noscript");
+        if (cloned) {
+            // Remove script tags
+            if (!!options.removeScripts) {
+                removeTags(rootCopy, "script");
+                removeTags(rootCopy, "noscript");
+            }
+
+            // Remove link imports
+            if (!options.keepImports) {
+                removeTags(rootCopy, "link", ["rel", "import"]);
+            }
+
+            // Remove comment nodes
+            if (!!options.removeComments) {
+                removeNodes(rootCopy, 8);
+            }
+
+            // Set "selected" attribute on select list elements
+            fixSelectLists(root, rootCopy);
+
+            // Set attributes on input elements.
+            fixInputs(root, rootCopy);
+
+            // Set attributes on textarea elements.
+            fixTextareas(root, rootCopy);
+
+            // Apply privacy
+            rootCopy = messageService.applyPrivacyToNode(rootCopy, rootXpath, doc);
+
+            // Optionally capture any frames
+            if (!!options.captureFrames) {
+                // Get the iframes
+                frameCaptureObj = getFrames(root, rootCopy, options);
+            }
         }
 
-        // Remove comment nodes
-        if (!!options.removeComments) {
-            removeNodes(rootCopy, 8);
-        }
-
-        // Set "selected" attribute on select list elements
-        fixSelectLists(root, rootCopy);
-
-        // Set attributes on input elements.
-        fixInputs(root, rootCopy);
-
-        // Set attributes on textarea elements.
-        fixTextareas(root, rootCopy);
-
-        // Apply privacy
-        rootCopy = messageService.applyPrivacyToNode(rootCopy, rootXpath, doc);
-
-        // Optionally capture any frames
-        if (!!options.captureFrames) {
-            // Get the iframes
-            frameCaptureObj = getFrames(root, rootCopy, options);
+        // Capture any shadow DOM trees
+        if (0 && !!options.captureShadowDOM) {
+            shadowDOMObj = getShadowDOM(root, rootCopy, options);
         }
 
         // Add all the captured data to the capture object
         if (frameCaptureObj) {
             captureObj = utils.mixin(captureObj, frameCaptureObj);
         }
+        if (shadowDOMObj) {
+            captureObj = utils.mixin(captureObj, shadowDOMObj);
+        }
 
-        captureObj.root = (getDoctypeAsString(root) || "") + getHTMLText(rootCopy);
+        serializedDOM = (getDoctypeAsString(root) || "") + getHTMLText(rootCopy || root);
+
+        // Apply privacy patterns to the serialized DOM
+        captureObj.root = messageService.applyPrivacyPatterns(serializedDOM);
 
         return captureObj;
     };
@@ -7726,8 +8635,8 @@ TLT.addService("domCapture", function (core) {
                 observedWindow,
                 totalLength = 0;
 
-            // Sanity check - DOM Capture is not supported on IE 8 and below
-            if (!isInitialized || utils.isLegacyIE) {
+            // Sanity check - DOM Capture is not supported on IE 9 and below
+            if (!isInitialized || (utils.isIE && document.documentMode < 10)) {
                 return captureObj;
             }
 
@@ -7795,10 +8704,16 @@ TLT.addService("domCapture", function (core) {
     };
 
 });
+
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -7951,9 +8866,14 @@ TLT.addService("encoder", function (core) {
 
 });
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -7980,9 +8900,10 @@ TLT.addService("message", function (core) {
         browserService    = core.getService("browser"),
         configService     = core.getService("config"),
         config            = configService.getServiceConfig("message") || {},
-        windowHref        = window.location.href,
+        windowHref        = core.normalizeUrl(window.location.href),
         windowHostname    = window.location.hostname,
         privacy           = config.hasOwnProperty("privacy") ? config.privacy : [],
+        privacyPatterns,
         privacyMasks      = {},
         maskingCharacters = {
             lower: "x",
@@ -7991,21 +8912,19 @@ TLT.addService("message", function (core) {
             symbol: "@"
         },
 
-        //TODO move these to a global section due to they might be used elsewhere
-        isApple = utils.isiOS,
-        isAndroidChrome = navigator.userAgent.indexOf("Chrome") > -1 && utils.isAndroid,
-        devicePixelRatio = window.devicePixelRatio || 1,
+        devicePixelRatio = parseFloat((window.devicePixelRatio || 1).toFixed(2)),
         screen = window.screen || {},
         screenWidth = screen.width || 0,
         screenHeight = screen.height || 0,
         deviceOrientation = browserBaseService.getNormalizedOrientation(),
         // iOS Safari reports constant width/height irrespective of orientation, so we have to swap manually
-        deviceWidth = !isApple ? screenWidth : Math.abs(deviceOrientation) === 90 ? screenHeight : screenWidth,
-        deviceHeight = !isApple ? screenHeight : Math.abs(deviceOrientation) === 90 ? screenWidth : screenHeight,
+        deviceWidth = !utils.isiOS ? screenWidth : Math.abs(deviceOrientation) === 90 ? screenHeight : screenWidth,
+        deviceHeight = !utils.isiOS ? screenHeight : Math.abs(deviceOrientation) === 90 ? screenWidth : screenHeight,
         deviceToolbarHeight = (window.screen ? window.screen.height - window.screen.availHeight : 0),
         startWidth = window.innerWidth || document.documentElement.clientWidth,
         startHeight = window.innerHeight || document.documentElement.clientHeight,
-        isInitialized = false;
+        isInitialized = false,
+        shadowMessageCache = {};
 
 
     /**
@@ -8038,7 +8957,7 @@ TLT.addService("message", function (core) {
             prevScreenviewOffsetTime = screenviewOffsetTime;
             screenviewOffsetTime = timestamp;
             if (event.screenview.type === "UNLOAD") {
-                this.screenviewOffset = timestamp - prevScreenviewOffsetTime;
+                this.screenviewOffset = timestamp - (prevScreenviewOffsetTime || sessionStart.getTime());
             }
         } else if (screenviewOffsetTime) {
             /**
@@ -8207,10 +9126,7 @@ TLT.addService("message", function (core) {
 
     /**
      * Checks whether one of the privacy targets matches the target
-     *                          of the current message.
-     * TODO: There are several places in the library where the same type
-     * of matching result is required based on id or selector. This should
-     * be consolidated into a single helper function.
+     * of the current message.
      * @param  {Array} targets An array of objects as defined in the
      *                         privacy configuration.
      * @param  {Object} target  The target object of the message.
@@ -8218,63 +9134,35 @@ TLT.addService("message", function (core) {
      *                           Otherwise false.
      */
     function matchesTarget(targets, target) {
+        return (utils.matchTarget(targets, target) !== -1);
+    }
+
+    /**
+     * Performs privacy pattern matching and replacement on the provided string.
+     * @param {String} str Input string to which privacy pattern matching and
+     *                     replacement is to be applied
+     * @return {String} Output string with privacy pattern replacement applied.
+     */
+    function applyPrivacyPatterns(str) {
         var i,
-            j,
-            element,
-            qr,
-            qrLen,
-            qrTarget,
-            regex,
             len,
-            tmpTarget,
-            domElement,
-            scope = document;
+            begin,
+            duration,
+            rule;
 
         // Sanity check
-        if (!targets || !target || !target.id) {
-            return false;
+        if (!str) {
+            return "";
         }
 
-        // get the document scope for xpath elements since they could be inside iframe
-        if (target.idType === -2) {
-            domElement = browserBaseService.getNodeFromID(target.id, target.idType);
-            scope = utils.getDocument(domElement);
+
+        for (i = 0, len = privacyPatterns.length; i < len; i += 1) {
+            rule = privacyPatterns[i];
+            rule.cRegex.lastIndex = 0;
+            str = str.replace(rule.cRegex, rule.replacement);
         }
 
-        for (i = 0, len = targets.length; i < len; i += 1) {
-            tmpTarget = targets[i];
-
-            // Check if target in config is a selector string.
-            if (typeof tmpTarget === "string") {
-                qr = browserService.queryAll(tmpTarget, scope);
-                for (j = 0, qrLen = qr ? qr.length : 0; j < qrLen; j += 1) {
-                    if (qr[j]) {
-                        qrTarget = browserBaseService.ElementData.prototype.examineID(qr[j]);
-                        if (qrTarget.idType === target.idType && qrTarget.id === target.id) {
-                            return true;
-                        }
-                    }
-                }
-            } else if (tmpTarget && tmpTarget.id && tmpTarget.idType && target.idType === tmpTarget.idType) {
-                // An id in the configuration could be a direct match, in which case it will be a string OR
-                // it could be a regular expression in which case it would be an object like this:
-                // {regex: ".+private$", flags: "i"}
-                switch (typeof tmpTarget.id) {
-                case "string":
-                    if (tmpTarget.id === target.id) {
-                        return true;
-                    }
-                    break;
-                case "object":
-                    regex = new RegExp(tmpTarget.id.regex, tmpTarget.id.flags);
-                    if (regex.test(target.id)) {
-                        return true;
-                    }
-                    break;
-                }
-            }
-        }
-        return false;
+        return str;
     }
 
     /**
@@ -8290,21 +9178,41 @@ TLT.addService("message", function (core) {
     function privacyFilter(target) {
         var i,
             len,
-            mask;
+            exclude,
+            mask,
+            maskApplied = false,
+            prevState,
+            currState;
 
         // Sanity check
         if (!target || (!target.currState && !target.prevState)) {
             return target;
         }
 
+        prevState = target.prevState;
+        currState = target.currState;
+
         for (i = 0, len = privacy.length; i < len; i += 1) {
             mask = privacy[i];
-            if (matchesTarget(mask.targets, target)) {
-                applyMask(mask, target.prevState);
-                applyMask(mask, target.currState);
+            exclude = utils.getValue(mask, "exclude", false);
+            if (matchesTarget(mask.targets, target) !== exclude) {
+                applyMask(mask, prevState);
+                applyMask(mask, currState);
+                maskApplied = true;
                 break;
             }
         }
+
+        if (!maskApplied) {
+            // Apply privacy patterns
+            if (prevState && prevState.value) {
+                prevState.value = applyPrivacyPatterns(prevState.value);
+            }
+            if (currState && currState.value) {
+                currState.value = applyPrivacyPatterns(currState.value);
+            }
+        }
+
         return target;
     }
 
@@ -8351,7 +9259,11 @@ TLT.addService("message", function (core) {
             element.value = maskedValue;
         }
 
-        // Special handling for select elements
+        if (element.checked) {
+            element.removeAttribute("checked");
+        }
+
+        // Special handling for select element
         if (utils.getTagName(element) === "select") {
             element.selectedIndex = -1;
             for (i = 0, len = element.options.length; i < len; i += 1) {
@@ -8359,141 +9271,121 @@ TLT.addService("message", function (core) {
                 option.removeAttribute("selected");
                 option.selected = false;
             }
+        } else if (utils.getTagName(element) === "textarea") {
+            // Special handling for textarea element
+            element.textContent = element.value;
         }
     }
 
     /**
-     * Applies the privacy configuration to all the matching elements
-     * of the specified document object.
-     * @param  {DOMDocument} doc The document object to which the privacy rules
-     *                      need to be applied.
-     * @return {DOMDocument}     The document object to which the privacy rules
-     *                      have been applied.
+     * This function accepts a list of privacy rules containing regex and xpath targets.
+     * It tests each of these rules with all the input, textarea and select elements in
+     * the scope of the root node. Elements that match the rule are privacy masked or
+     * excluded from privacy masking as per the configuration.
+     * @param {Array} regexAndXpathRules List containing privacy rules with regex and xpath targets.
+     * @param {DOMNode} root Node subtree to which privacy is to be applied.
+     * @param {Array} rootXpath The full xpath of the root node.
+     * @param {DOMNode} doc The document object associated with the root node.
+     * @param {Array} excludedElements List containing elements to be excluded from privacy masking.
+     * @param {Object} excludeMask Object specifying the privacy mask to be applied to any remaining non-excluded elements.
      */
-    function applyPrivacyToDocument(doc) {
+    function applyRegexAndXpathPrivacyRules(regexAndXpathRules, root, rootXpath, doc, excludedElements, excludeMask) {
         var i, j, k,
-            element,
-            len,
-            mask,
-            qr,
-            qrLen,
-            target,
-            targets,
-            targetsLen;
-
-        // Sanity check
-        if (!doc) {
-            return doc;
-        }
-
-        for (i = 0, len = privacy.length; i < len; i += 1) {
-            mask = privacy[i];
-            targets = mask.targets;
-            for (j = 0, targetsLen = targets.length; j < targetsLen; j += 1) {
-                target = targets[j];
-                if (typeof target === "string") {
-                    // CSS selector
-                    qr = browserService.queryAll(target, doc);
-                    for (k = 0, qrLen = qr.length; k < qrLen; k += 1) {
-                        element = qr[k];
-                        if (element.value) {
-                            element.setAttribute("value", maskStr(mask, element.value));
-                        }
-                    }
-                } else {
-                    if (typeof target.id === "string") {
-                        element = browserBaseService.getNodeFromID(target.id, target.idType, doc);
-                        if (element && element.value) {
-                            element.setAttribute("value", maskStr(mask, element.value));
-                        }
-                    }
-                    // TODO: Handle the case where the target.id is a regex.
-                    /*
-                     * 1. Save all the regex rules into 3 arrays depending on the idType
-                     * {
-                     *     htmlID: [ {regex, mask} ],
-                     *     xpathID: [],
-                     *     customID: []
-                     * }
-                     * 2. Outside this for loop, get all the input elements in the document
-                     * 3. Get element id, idType
-                     */
-                }
-            }
-        }
-
-        return doc;
-    }
-
-    /**
-     *
-     */
-    function applyRegexAndXpathPrivacyRules(regexAndXpathRules, root, rootXpath, doc) {
-        var i, j,
             len,
             element,
             elementInfo,
             elements = [],
             elementXpath,
+            exclude,
             maskedValue,
             rule,
             target,
             qr;
 
         // Check if there are any privacy rules to be applied based on regex or xpath targets
-        if (!regexAndXpathRules.length) {
-            return;
+        if (!regexAndXpathRules.length && !excludedElements.length && !excludeMask) {
+            return [];
         }
 
         // Identify all eligible input, select and textarea elements from the DOM subtree
         qr = browserService.queryAll("input, select, textarea", root);
         if (!qr || !qr.length) {
-            return;
+            return [];
         }
 
-        // Calculate the id & idType of each element
-        for (i = 0, len = qr.length; i < len; i += 1) {
-            if (qr[i].value) {
-                elementInfo = browserBaseService.ElementData.prototype.examineID(qr[i]);
+        // Remove excluded elements (if any)
+        for (i = 0, len = excludedElements.length; i < len; i += 1) {
+            j = qr.indexOf(excludedElements[i]);
+            if (j !== -1) {
+                qr.splice(j, 1);
+            }
+        }
 
-                // Xpath needs additional processing
-                if (elementInfo.idType === -2) {
-                    // Element xpath needs to be prefixed with the rootXpath
-                    elementXpath = new browserBaseService.Xpath(qr[i]);
-                    elementXpath.applyPrefix(rootXpath);
-                    elementInfo.id = elementXpath.xpath;
+        // Only calculate element xpaths if there are regex or xpath rules
+        if (regexAndXpathRules.length) {
+            // Calculate the id & idType of each element
+            for (i = 0, len = qr.length, elements = []; i < len; i += 1) {
+                if (qr[i].value) {
+                    elementInfo = browserBaseService.ElementData.prototype.examineID(qr[i], true);
+
+                    // Xpath needs additional processing
+                    if (elementInfo.idType === -2) {
+                        // Element xpath needs to be prefixed with the rootXpath
+                        elementXpath = new browserBaseService.Xpath(qr[i], true);
+                        elementXpath.applyPrefix(rootXpath);
+                        elementInfo.id = elementXpath.xpath;
+                    }
+
+                    elements.push({
+                        id: elementInfo.id,
+                        idType: elementInfo.idType,
+                        element: qr[i]
+                    });
                 }
-
-                elements.push({
-                    id: elementInfo.id,
-                    idType: elementInfo.idType,
-                    element: qr[i]
-                });
             }
         }
 
         // Test each element against the regex and xpath rules
         for (i = 0, len = regexAndXpathRules.length; i < len; i += 1) {
             rule = privacy[regexAndXpathRules[i].ruleIndex];
+            exclude = utils.getValue(rule, "exclude", false);
             target = rule.targets[regexAndXpathRules[i].targetIndex];
             if (typeof target.id === "string" && target.idType === -2) {
                 // Normal Xpath id
                 for (j = 0; j < elements.length; j += 1) {
                     if (elements[j].idType === target.idType && elements[j].id === target.id) {
-                        // Apply the mask
-                        element = elements[j].element;
-                        maskElement(element, rule);
+                        if (!exclude) {
+                            // Apply the mask
+                            element = elements[j].element;
+                            maskElement(element, rule);
+                        } else {
+                            k = qr.indexOf(element);
+                            qr.splice(k, 1);
+                        }
                     }
                 }
             } else {
                 // Regex
                 for (j = 0; j < elements.length; j += 1) {
-                    if (elements[j].idType === target.idType && target.regex.test(elements[j].id)) {
-                        // Apply the mask
+                    target.cRegex.lastIndex = 0;
+                    if (elements[j].idType === target.idType && target.cRegex.test(elements[j].id)) {
                         element = elements[j].element;
-                        maskElement(element, rule);
+                        if (!exclude) {
+                            // Apply the mask
+                            maskElement(element, rule);
+                        } else {
+                            k = qr.indexOf(element);
+                            qr.splice(k, 1);
+                        }
                     }
                 }
+            }
+        }
+
+        if (excludeMask) {
+            // Apply privacy mask to any remaining non-excluded elements
+            for (i = 0, len = qr.length; i < len; i += 1) {
+                maskElement(qr[i], excludeMask);
             }
         }
     }
@@ -8508,6 +9400,9 @@ TLT.addService("message", function (core) {
     function applyPrivacyToNode(root, rootXpath, doc) {
         var i, j, k,
             element,
+            exclude,
+            excludedElements = [],
+            excludeMask,
             len,
             mask,
             maskedValue,
@@ -8526,6 +9421,10 @@ TLT.addService("message", function (core) {
         // Go through each privacy rule
         for (i = 0, len = privacy.length; i < len; i += 1) {
             mask = privacy[i];
+            exclude = utils.getValue(mask, "exclude", false);
+            if (exclude) {
+                excludeMask = mask;
+            }
             targets = mask.targets;
             // Go through each target
             for (j = 0, targetsLen = targets.length; j < targetsLen; j += 1) {
@@ -8533,9 +9432,13 @@ TLT.addService("message", function (core) {
                 if (typeof target === "string") {
                     // CSS selector
                     qr = browserService.queryAll(target, root);
-                    for (k = 0, qrLen = qr.length; k < qrLen; k += 1) {
-                        element = qr[k];
-                        maskElement(element, mask);
+                    if (!exclude) {
+                        for (k = 0, qrLen = qr.length; k < qrLen; k += 1) {
+                            element = qr[k];
+                            maskElement(element, mask);
+                        }
+                    } else {
+                        excludedElements = excludedElements.concat(qr);
                     }
                 } else {
                     if (typeof target.id === "string") {
@@ -8543,13 +9446,18 @@ TLT.addService("message", function (core) {
                         case -1:
                         case -3:
                             element = browserBaseService.getNodeFromID(target.id, target.idType, root);
-                            maskElement(element, mask);
+                            if (!exclude) {
+                                maskElement(element, mask);
+                            } else {
+                                excludedElements.push(element);
+                            }
                             break;
                         case -2:
                             // Handle the case where the target.id is XPath
                             regexAndXpathRules.push({
                                 ruleIndex: i,
-                                targetIndex: j
+                                targetIndex: j,
+                                exclude: exclude
                             });
                             break;
                         default:
@@ -8559,14 +9467,15 @@ TLT.addService("message", function (core) {
                         // Handle the case where the target.id is a regex.
                         regexAndXpathRules.push({
                             ruleIndex: i,
-                            targetIndex: j
+                            targetIndex: j,
+                            exclude: exclude
                         });
                     }
                 }
             }
         }
 
-        applyRegexAndXpathPrivacyRules(regexAndXpathRules, root, rootXpath, doc);
+        applyRegexAndXpathPrivacyRules(regexAndXpathRules, root, rootXpath, doc, excludedElements, excludeMask);
 
         return root;
     }
@@ -8601,6 +9510,7 @@ TLT.addService("message", function (core) {
      */
     function updateConfig() {
         var i, j,
+            len,
             rule,
             rulesLen,
             target,
@@ -8609,7 +9519,8 @@ TLT.addService("message", function (core) {
 
         configService = core.getService("config");
         config = configService.getServiceConfig("message") || {};
-        privacy = config.hasOwnProperty("privacy") ? config.privacy : [];
+        privacy = config.privacy || [];
+        privacyPatterns = config.privacyPatterns || [];
 
         // Fix idType to integers and setup regex targets (if any)
         for (i = 0, rulesLen = privacy.length; i < rulesLen; i += 1) {
@@ -8624,9 +9535,19 @@ TLT.addService("message", function (core) {
                     }
                     if (typeof target.id === "object") {
                         // Regex target
-                        target.regex = new RegExp(target.id.regex, target.id.flags);
+                        target.cRegex = new RegExp(target.id.regex, target.id.flags);
                     }
                 }
+            }
+        }
+
+        // Validate privacy patterns and cache the regex.
+        for (len = privacyPatterns.length, i = len - 1; i >= 0; i -= 1) {
+            rule = privacyPatterns[i];
+            if (typeof rule.pattern === "object") {
+                rule.cRegex = new RegExp(rule.pattern.regex, rule.pattern.flags);
+            } else {
+                privacyPatterns.splice(i, 1);
             }
         }
     }
@@ -8647,6 +9568,63 @@ TLT.addService("message", function (core) {
         isInitialized = false;
     }
 
+    /**
+     * This function will will optimize the dom capture message by
+     * replacing content with cached dcids if content matching is found.
+     * @param {Object} domCapture The dom capture message object.
+     */
+    function optimizeDOMCaptureMessage(domCapture) {
+        var dcid = domCapture.dcid,
+            shadows = domCapture.shadows || [],
+            isFullDom = domCapture.fullDOM,
+            ageThreshold = 1,
+            i,
+            len,
+            key,
+            shadowNode,
+            cachedNode;
+
+        if (shadows.length === 0 || !isFullDom) {
+            return;
+        }
+
+        for (key in shadowMessageCache) {
+            if (shadowMessageCache.hasOwnProperty(key)) {
+                shadowMessageCache[key].age += 1;
+            }
+        }
+
+        for (i = 0, len = shadows.length; i < len; i += 1) {
+            shadowNode = shadows[i];
+            cachedNode = shadowMessageCache[shadowNode.xpath];
+
+            if (cachedNode && cachedNode.root === shadowNode.root) {
+                cachedNode.hitCount += 1;
+                cachedNode.age -= 1;
+                shadowNode.cacheDCID = cachedNode.dcid;
+                delete shadowNode.root;
+            } else {
+                // add or update xpath to cache
+                shadowMessageCache[shadowNode.xpath] = {
+                    root: shadowNode.root,
+                    dcid: dcid,
+                    hitCount: 0,
+                    age: 0
+                };
+            }
+        }
+
+        //clear obsolete xpath
+        for (key in shadowMessageCache) {
+            if (shadowMessageCache.hasOwnProperty(key)) {
+                cachedNode = shadowMessageCache[key];
+                if (cachedNode.age > cachedNode.hitCount + ageThreshold) {
+                    delete shadowMessageCache[key];
+                }
+            }
+        }
+    }
+
 
     /**
      * @scope messageService
@@ -8664,13 +9642,13 @@ TLT.addService("message", function (core) {
             destroy();
         },
 
-        applyPrivacyToDocument: applyPrivacyToDocument,
-
         applyPrivacyToNode: applyPrivacyToNode,
 
         applyPrivacyToMessage: applyPrivacyToMessage,
 
         applyPrivacyToTarget: privacyFilter,
+
+        applyPrivacyPatterns: applyPrivacyPatterns,
 
         isPrivacyMatched: isPrivacyMatched,
 
@@ -8683,6 +9661,11 @@ TLT.addService("message", function (core) {
             if (typeof event.type === "undefined") {
                 throw new TypeError("Invalid queueEvent given!");
             }
+
+            if (event.type === 12) {
+                optimizeDOMCaptureMessage(event.domCapture);
+            }
+
             return applyPrivacyToMessage(new Message(event));
         },
 
@@ -8695,7 +9678,7 @@ TLT.addService("message", function (core) {
          */
         wrapMessages: function (messages) {
             var messagePackage = {
-                messageVersion: "8.0.0.0",
+                messageVersion: "10.0.0.0",
                 serialNumber: (count += 1),
                 sessions: [{
                     id: core.getPageId(),
@@ -8704,7 +9687,7 @@ TLT.addService("message", function (core) {
                     messages: messages,
                     clientEnvironment: {
                         webEnvironment: {
-                            libVersion: "5.3.0.1788",
+                            libVersion: "5.6.0.1875",
                             domain: windowHostname,
                             page: windowHref,
                             referrer: document.referrer,
@@ -8726,15 +9709,23 @@ TLT.addService("message", function (core) {
             webEnvScreen.orientationMode = utils.getOrientationMode(webEnvScreen.orientation);
 
             return messagePackage;
+        },
+        getSessionStart: function () {
+            return sessionStart;
         }
     };
 
 });
 
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -8754,63 +9745,13 @@ TLT.addService("serializer", function (core) {
     "use strict";
 
     /**
-     * JSON serializer. If possible it uses JSON.stringify method, but
-     * for older browsers it provides minimalistic implementaction of
-     * custom serializer (limitations: does not detect circular
-     * dependencies, does not serialize date objects and does not
-     * validate names of object fields).
-     * @private
-     * @function
-     * @name serializerService-serializeToJSON
-     * @param {Any} obj - any value
-     * @returns {string} serialized string
-     */
-    function serializeToJSON(obj) {
-        var str,
-            key,
-            len = 0;
-        if (typeof obj !== "object" || obj === null) {
-            switch (typeof obj) {
-            case "function":
-            case "undefined":
-                return "null";
-            case "string":
-                return '"' + obj.replace(/\"/g, '\\"') + '"';
-            default:
-                return String(obj);
-            }
-        } else if (Object.prototype.toString.call(obj) === "[object Array]") {
-            str = "[";
-            for (key = 0, len = obj.length; key < len; key += 1) {
-                if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                    str += serializeToJSON(obj[key]) + ",";
-                }
-            }
-        } else {
-            str = "{";
-            for (key in obj) {
-                if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                    str = str.concat('"', key, '":', serializeToJSON(obj[key]), ",");
-                    len += 1;
-                }
-            }
-        }
-        if (len > 0) {
-            str = str.substring(0, str.length - 1);
-        }
-        str += String.fromCharCode(str.charCodeAt(0) + 2);
-        return str;
-    }
-
-
-    /**
      * Serializer / Parser implementations
      * @type {Object}
      */
     var configService = core.getService("config"),
         serialize = {},
         parse = {},
-        defaultSerializers = {
+        defaultSerializer = {
             json: (function () {
                 if (typeof window.JSON !== "undefined") {
                     return {
@@ -8819,14 +9760,8 @@ TLT.addService("serializer", function (core) {
                     };
                 }
 
-                return {
-                    serialize: serializeToJSON,
-                    parse: function (data) {
-                        // AppScan: To disable use of eval set the "defaultToBuiltin" property to false
-                        // in the serializer service configuration. Refer to the documentation for details.
-                        return eval("(" + data + ")");
-                    }
-                };
+                // No native JSON support.
+                return {};
             }())
         },
         updateConfig = null,
@@ -8849,27 +9784,28 @@ TLT.addService("serializer", function (core) {
             }
         }
     }
-	function checkParserAndSerializer() {
-		var isParserAndSerializerInvalid;
+    function checkParserAndSerializer() {
+        var isParserAndSerializerInvalid;
         if (typeof serialize.json !== "function" || typeof parse.json !== "function") {
-			isParserAndSerializerInvalid = true;
+            isParserAndSerializerInvalid = true;
         } else {
-			if (typeof parse.json('{"foo": "bar"}') === "undefined") {
-				isParserAndSerializerInvalid = true;
-			} else {
-				isParserAndSerializerInvalid = parse.json('{"foo": "bar"}').foo !== "bar";
-			}
-			if (typeof parse.json("[1, 2]") === "undefined") {
-				isParserAndSerializerInvalid = true;
-			} else {
-				isParserAndSerializerInvalid = isParserAndSerializerInvalid || parse.json("[1, 2]")[0] !== 1;
-				isParserAndSerializerInvalid = isParserAndSerializerInvalid || parse.json("[1,2]")[1] !== 2;
-			}
-			isParserAndSerializerInvalid = isParserAndSerializerInvalid || serialize.json({"foo": "bar"}) !== '{"foo":"bar"}';
-			isParserAndSerializerInvalid = isParserAndSerializerInvalid || serialize.json([1, 2]) !== "[1,2]";
-		}
-		return isParserAndSerializerInvalid;
-	}
+            if (typeof parse.json('{"foo": "bar"}') === "undefined") {
+                isParserAndSerializerInvalid = true;
+            } else {
+                isParserAndSerializerInvalid = parse.json('{"foo": "bar"}').foo !== "bar";
+            }
+            if (typeof parse.json("[1, 2]") === "undefined") {
+                isParserAndSerializerInvalid = true;
+            } else {
+                isParserAndSerializerInvalid = isParserAndSerializerInvalid || parse.json("[1, 2]")[0] !== 1;
+                isParserAndSerializerInvalid = isParserAndSerializerInvalid || parse.json("[1,2]")[1] !== 2;
+            }
+            isParserAndSerializerInvalid = isParserAndSerializerInvalid || serialize.json({"foo": "bar"}) !== '{"foo":"bar"}';
+            isParserAndSerializerInvalid = isParserAndSerializerInvalid || serialize.json([1, 2]) !== "[1,2]";
+        }
+        return isParserAndSerializerInvalid;
+    }
+
     function initSerializerService(config) {
         var format;
         for (format in config) {
@@ -8879,20 +9815,18 @@ TLT.addService("serializer", function (core) {
             }
         }
 
-        // use default JSON parser/serializer if possible
-        if (!(config.json && config.json.hasOwnProperty("defaultToBuiltin")) || config.json.defaultToBuiltin === true) {
-            serialize.json = serialize.json || defaultSerializers.json.serialize;
-            parse.json = parse.json || defaultSerializers.json.parse;
-        }
+        serialize.json = serialize.json || defaultSerializer.json.serialize;
+        parse.json = parse.json || defaultSerializer.json.parse;
 
-        //sanity check
+        // Sanity check
         if (typeof serialize.json !== "function" || typeof parse.json !== "function") {
             core.fail("JSON parser and/or serializer not provided in the UIC config. Can't continue.");
         }
-		if (checkParserAndSerializer()) {
-			core.fail("JSON stringification and parsing are not working as expected");
-		}
-        if (configService.subscribe) {
+        if (checkParserAndSerializer()) {
+            core.fail("JSON stringification and parsing are not working as expected");
+        }
+
+        if (configService) {
             configService.subscribe("configupdated", updateConfig);
         }
 
@@ -8904,7 +9838,9 @@ TLT.addService("serializer", function (core) {
         serialize = {};
         parse = {};
 
-        configService.unsubscribe("configupdated", updateConfig);
+        if (configService) {
+            configService.unsubscribe("configupdated", updateConfig);
+        }
 
         isInitialized = false;
     }
@@ -8912,7 +9848,7 @@ TLT.addService("serializer", function (core) {
     updateConfig = function () {
         configService = core.getService("config");
         // TODO: reinit only if config changed. Verify initSerializerService is idempotent
-        initSerializerService(configService.getServiceConfig("serializer") || {});
+        initSerializerService(configService.getServiceConfig("serializer"));
     };
 
     /**
@@ -8920,8 +9856,11 @@ TLT.addService("serializer", function (core) {
      */
     return {
         init: function () {
+            var ssConfig;
+
             if (!isInitialized) {
-                initSerializerService(configService.getServiceConfig("serializer") || {});
+                ssConfig = configService ? configService.getServiceConfig("serializer") : {};
+                initSerializerService(ssConfig);
             } else {
             }
         },
@@ -8960,9 +9899,14 @@ TLT.addService("serializer", function (core) {
 
 });
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -8976,49 +9920,45 @@ TLT.addModule("TLCookie", function (context) {
     "use strict";
 
     var moduleConfig = {},
+        sessionIDStorageTTL = 0,
         wcxCookieName = "WCXSID",
         tltCookieName = "TLTSID",
         visitorCookieName = "CoreID6",
         wcxCookieValue,
         tltCookieValue,
         visitorCookieValue = null,
-        wcxCookieAge = 1800,
         tlAppKey,
-        postAppCookiesEnabled,
         utils = context.utils;
+
+    /**
+     * Return a random 32 digit string.
+     * @function
+     * @private
+     * @return {String} A randomly generated 32 digit string.
+     */
+    function generateTLTSID() {
+        var dataSet = "123456789",
+            tltsid = utils.getRandomString(1, dataSet) + utils.getRandomString(31, dataSet + "0");
+
+        return tltsid;
+    }
 
     /**
      * Create a TLTSID cookie using a randomly generated 32 character length string.
      * This is a session cookie i.e. no expires or max-age.
      * @function
      * @private
-     * @return {string} The session cookie value or null if the cookie could not be set.
+     * @return {String} The session cookie value or null if the cookie could not be set.
      */
-    function createTLTSID() {
-        var dataSet = "123456789",
-            cookieValue = wcxCookieValue || (utils.getRandomString(1, dataSet) + utils.getRandomString(27, dataSet + "0"));
+    function createTLTSIDCookie() {
+        var cookieValue = generateTLTSID(),
+            secure = !!moduleConfig.secureTLTSID,
+            undefined;
 
         // Set the session cookie
-        utils.setCookie(tltCookieName, "0000" + cookieValue);
+        utils.setCookie(tltCookieName, cookieValue, undefined, undefined, undefined, secure);
 
         return utils.getCookieValue(tltCookieName);
-    }
-
-    /**
-     * Create a WCXSID cookie using a randomly generated 28 digit string.
-     * This is a perm cookie which expires after 30 minutes.
-     * @function
-     * @private
-     * @return {string} The cookie value or null if the cookie could not be set.
-     */
-    function createWCXSID() {
-        var dataSet = "123456789",
-            cookieValue = wcxCookieValue || (utils.getRandomString(1, dataSet) + utils.getRandomString(27, dataSet + "0"));
-
-        // Set the WCX cookie
-        utils.setCookie(wcxCookieName, cookieValue, wcxCookieAge);
-
-        return utils.getCookieValue(wcxCookieName);
     }
 
     /**
@@ -9027,12 +9967,72 @@ TLT.addModule("TLCookie", function (context) {
      * @private
      */
     function getVisitorCookie() {
-        if (!window.cmRetrieveUserID) {
+        if (visitorCookieValue || !window.cmRetrieveUserID) {
             return;
         }
-        window.cmRetrieveUserID(function (id) {
-            visitorCookieValue = id;
-        });
+
+        try {
+            window.cmRetrieveUserID(function (id) {
+                visitorCookieValue = id;
+            });
+        } catch (e) {
+            visitorCookieValue = null;
+        }
+    }
+
+    /**
+     * Parse and return the session id value from localStorage.
+     * @function
+     * @private
+     * @param {String} sidKey The session id key.
+     * @return {String}|undefined Returns the session id value if found, else returns undefined.
+     */
+    function getSIDFromStorage(sidKey) {
+        var expires,
+            items,
+            itemVal,
+            sidValue;
+
+        // Sanity check
+        if (!localStorage || !sidKey) {
+            return;
+        }
+
+        itemVal = localStorage.getItem(sidKey);
+        if (itemVal) {
+            items = itemVal.split("|");
+            expires = parseInt(items[0], 10);
+            if (Date.now() > expires) {
+                localStorage.removeItem(sidKey);
+            } else {
+                sidValue = items[1];
+            }
+        }
+
+        return sidValue;
+    }
+
+    /**
+     * Set the session id value in localStorage along with the expiration time.
+     * @function
+     * @private
+     * @param {String} sidKey The session id key.
+     * @param {String} sidValue The session id value.
+     * @return {String}|undefined Returns the session id value if set, else returns undefined.
+     */
+    function setSIDInStorage(sidKey, sidValue) {
+        var expires;
+
+        // Sanity check
+        if (!localStorage || !sidKey) {
+            return;
+        }
+
+        sidValue = sidValue || generateTLTSID();
+        expires = Date.now() + sessionIDStorageTTL;
+        localStorage.setItem(sidKey, expires + "|" + sidValue);
+
+        return getSIDFromStorage(sidKey);
     }
 
     /**
@@ -9043,7 +10043,9 @@ TLT.addModule("TLCookie", function (context) {
      * @param {object} config The module configuration.
      */
     function processConfig(config) {
-        var reqHeaders = [];
+        var reqHeaders = [],
+            sessionIDUsesCookie = utils.getValue(config, "sessionIDUsesCookie", true),
+            sessionIDUsesStorage = utils.getValue(config, "sessionIDUsesStorage", false);
 
         // Check if the tlAppKey is specified
         if (config.tlAppKey) {
@@ -9056,34 +10058,61 @@ TLT.addModule("TLCookie", function (context) {
             );
         }
 
-        // WCX session cookie processing
+        if (config.visitorCookieName) {
+            visitorCookieName = config.visitorCookieName;
+        }
+
+        /**
+         * WCX session cookie processing
+         */
         if (config.wcxCookieName) {
             wcxCookieName = config.wcxCookieName;
         }
-        if (config.wcxCookieAge) {
-            wcxCookieAge = config.wcxCookieAge;
-        }
         wcxCookieValue = utils.getCookieValue(wcxCookieName);
-        if (!wcxCookieValue) {
-            // Create a new WCXSID cookie
-            wcxCookieValue = createWCXSID();
+        if (wcxCookieValue) {
+            reqHeaders.push(
+                {
+                    name: "X-WCXSID",
+                    value: wcxCookieValue
+                }
+            );
         }
-        reqHeaders.push(
-            {
-                name: "X-WCXSID",
-                value: wcxCookieValue
-            }
-        );
 
-        // TLTSID cookie processing
+        /**
+         * TLTSID processing
+         */
         if (config.sessionizationCookieName) {
             tltCookieName = config.sessionizationCookieName;
         }
-        // Check if the session cookie exists
-        tltCookieValue = utils.getCookieValue(tltCookieName);
+
+        // Storing the session value in Storage is preferred over cookie when both are enabled.
+        // Hence, check localStorage for session id before checking cookie.
+        if (sessionIDUsesStorage) {
+            sessionIDStorageTTL = utils.getValue(config, "sessionIDStorageTTL", 600000);
+            tltCookieValue = getSIDFromStorage(tltCookieName);
+        }
+        if (!tltCookieValue && sessionIDUsesCookie) {
+            tltCookieValue = utils.getCookieValue(tltCookieName);
+        }
+
+        // A new session id needs to be created. Check for WCXSID before creating a new TLTSID.
         if (!tltCookieValue) {
-            // Create the TLTSID session cookie
-            tltCookieValue = createTLTSID();
+            if (wcxCookieValue) {
+                tltCookieValue = wcxCookieValue;
+            } else {
+                if (sessionIDUsesStorage) {
+                    tltCookieValue = setSIDInStorage(tltCookieName);
+                }
+                if (!tltCookieValue && sessionIDUsesCookie) {
+                    // Create the TLTSID session cookie
+                    tltCookieValue = createTLTSIDCookie();
+                }
+            }
+        }
+
+        // Session id could not be created in either Storage or Cookie!
+        if (!tltCookieValue) {
+            tltCookieValue = "Check7UIC7Cookie7Configuration77";
         }
         reqHeaders.push(
             {
@@ -9128,10 +10157,12 @@ TLT.addModule("TLCookie", function (context) {
             rule = whitelist[i];
             if (rule.regex) {
                 // Create the RegExp object once
-                if (!rule.regexp) {
-                    rule.regexp = new RegExp(rule.regex, rule.flags);
+                if (!rule.cRegex) {
+                    rule.cRegex = new RegExp(rule.regex, rule.flags);
                 }
-                result = rule.regexp.test(cookieName);
+                // Reset and test
+                rule.cRegex.lastIndex = 0;
+                result = rule.cRegex.test(cookieName);
             } else {
                 result = (rule === cookieName);
             }
@@ -9165,12 +10196,20 @@ TLT.addModule("TLCookie", function (context) {
             j = cookie.indexOf("=");
             // Handle edge case where cookie has no name i.e. j == -1
             if (j >= 0) {
-                cookieName = decodeURIComponent(cookie.substr(0, j));
+                try {
+                    cookieName = decodeURIComponent(cookie.substr(0, j));
+                } catch (e1) {
+                    cookieName = cookie.substr(0, j);
+                }
             }
             cookieValue = cookie.substr(j + 1);
             // Check if this cookie is whitelisted
             if (isCookieWhitelisted(cookieName)) {
-                appCookies[cookieName] = decodeURIComponent(cookieValue);
+                try {
+                    appCookies[cookieName] = decodeURIComponent(cookieValue);
+                } catch (e2) {
+                    appCookies[cookieName] = cookieValue;
+                }
             }
         }
 
@@ -9196,7 +10235,10 @@ TLT.addModule("TLCookie", function (context) {
         },
 
         destroy: function () {
-
+            if (moduleConfig.sessionIDUsesStorage) {
+                // Reset the expiry of the storage session id
+                setSIDInStorage(tltCookieName, tltCookieValue);
+            }
         },
 
         onevent: function (webEvent) {
@@ -9207,10 +10249,6 @@ TLT.addModule("TLCookie", function (context) {
                     postAppCookies();
                 }
                 break;
-            case "screenview_unload":
-                // Refresh WCXSID on every screen unload
-                createWCXSID();
-                break;
             default:
                 break;
             }
@@ -9219,9 +10257,14 @@ TLT.addModule("TLCookie", function (context) {
 
 });
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -9246,7 +10289,7 @@ if (TLT && typeof TLT.addModule === "function") {
             eventMap = {},
             configDefaults = {
                 updateInterval : 250,
-                hoverThresholdMin : 1000,
+                hoverThreshold : 1000,
                 hoverThresholdMax : 2 * 60 * 1000,
                 gridCellMaxX : 10,
                 gridCellMaxY : 10,
@@ -9479,7 +10522,7 @@ if (TLT && typeof TLT.addModule === "function") {
                     hEvent = this,
                     key = null,
                     idx = 0;
-                if (this.hoverDuration >= getConfigValue("hoverThresholdMin")) {
+                if (this.hoverDuration >= getConfigValue("hoverThreshold")) {
                     this.hoverDuration = Math.min(this.hoverDuration, getConfigValue("hoverThresholdMax"));
                     // add to ui event queue here
                     addedToQueue = true;
@@ -9584,6 +10627,20 @@ if (TLT && typeof TLT.addModule === "function") {
         }
 
         /*
+         * format relXY coords into two decimal 0<x<1 values
+         * @private
+         * @function
+         * @name overstat-formatRelXY
+         * @return {object} Formats the x and y location
+         */
+        function formatRelXY(x, y) {
+            x = Math.floor(Math.min(Math.max(x, 0), 1) * 10000) / 10000;
+            y = Math.floor(Math.min(Math.max(y, 0), 1) * 10000) / 10000;
+
+            return x +  "," + y;
+        }
+
+        /*
          * determine grid cell dimensions based on the constants
          * @private
          * @function
@@ -9598,8 +10655,8 @@ if (TLT && typeof TLT.addModule === "function") {
                 cellWidth = oWidth && oWidth > 0 ? Math.max(oWidth / getConfigValue("gridCellMaxX"), getConfigValue("gridCellMinWidth")) : getConfigValue("gridCellMinWidth"),
                 cellHeight = oHeight && oHeight > 0 ? Math.max(oHeight / getConfigValue("gridCellMaxY"), getConfigValue("gridCellMinHeight")) : getConfigValue("gridCellMinHeight"),
 
-                cellX = Math.floor(offsetX / cellWidth),
-                cellY = Math.floor(offsetY / cellHeight),
+                cellX = Math.min(Math.floor(offsetX / cellWidth), getConfigValue("gridCellMaxX")),
+                cellY = Math.min(Math.floor(offsetY / cellHeight), getConfigValue("gridCellMaxY")),
                 xVal = oWidth > 0 ? offsetX / oWidth : 0,
                 yVal = oHeight > 0 ? offsetY / oHeight : 0,
                 relXYVal = "";
@@ -9610,20 +10667,6 @@ if (TLT && typeof TLT.addModule === "function") {
 
             return { x: cellX, y: cellY, relXY: relXYVal };
         }
-
-        /*
-         * format relXY coords into two decimal 0<x<1 values
-         * @private
-         * @function
-         * @name overstat-formatRelXY
-         * @return {object} Formats the x and y location
-         */
-         function formatRelXY(x, y) {
-            x = Math.floor(Math.min(Math.max(x, 0), 1) * 100) / 100;
-            y = Math.floor(Math.min(Math.max(y, 0), 1) * 100) / 100;
-
-            return x +  "," + y;
-         }
 
         /*
          * called when a hover event fires - processes all unrelated hover events from the queue.
@@ -9877,8 +10920,8 @@ if (TLT && typeof TLT.addModule === "function") {
 
             },
 
-			createHoverEvent: createHoverEvent,
-			cleanupHoverEvents: cleanupHoverEvents,
+            createHoverEvent: createHoverEvent,
+            cleanupHoverEvents: cleanupHoverEvents,
             eventMap: eventMap
         };
     });  // End of TLT.addModule
@@ -9888,9 +10931,14 @@ if (TLT && typeof TLT.addModule === "function") {
 }
 
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -9915,7 +10963,9 @@ if (TLT && typeof TLT.addModule === "function") {
                 unloadReceived: false,
                 perfEventSent: false
             },
-            calculatedRenderTime = 0;
+            calculatedRenderTime = 0,
+            config,
+            utils = context.utils;
 
 
         /**
@@ -10001,8 +11051,7 @@ if (TLT && typeof TLT.addModule === "function") {
         function getRenderTime(timing) {
             var renderTime = 0,
                 startTime,
-                endTime,
-                utils = context.utils;
+                endTime;
 
             if (timing) {
                 // Use the lesser of domLoading or responseEnd as the start of render, see data in CS-8915
@@ -10040,8 +11089,7 @@ if (TLT && typeof TLT.addModule === "function") {
          * @param {object} window The DOM window
          */
         function postPerformanceEvent(window) {
-            var config = context.getConfig() || {},
-                navType = "UNKNOWN",
+            var navType = "UNKNOWN",
                 queueEvent = {
                     type: 7,
                     performance: {}
@@ -10060,6 +11108,10 @@ if (TLT && typeof TLT.addModule === "function") {
             navigation = performance.navigation;
 
             if (timing) {
+                // Cannot calculate if the Load event has not occurred yet.
+                if (!timing.loadEventStart) {
+                    return;
+                }
                 queueEvent.performance.timing = parseTiming(timing, config.filter);
                 queueEvent.performance.timing.renderTime = getRenderTime(timing);
             } else if (config.calculateRenderTime) {
@@ -10101,7 +11153,6 @@ if (TLT && typeof TLT.addModule === "function") {
 
             // Invoke the context API to post this event
             context.post(queueEvent);
-            // TODO: Remove all instances of perfEventSent flag from this method and localize it's use in the caller?
             moduleState.perfEventSent = true;
         }
 
@@ -10116,14 +11167,14 @@ if (TLT && typeof TLT.addModule === "function") {
              * Initialize the performance module.
              */
             init: function () {
-                // TODO: Possibly add check to see if navigation timing interface is supported. If not, short circuit the implementation below.
+                config = context.getConfig();
             },
 
             /**
              * Terminate the performance module.
              */
             destroy: function () {
-
+                config = null;
             },
 
             /**
@@ -10140,12 +11191,21 @@ if (TLT && typeof TLT.addModule === "function") {
                 case "load":
                     moduleState.loadReceived = true;
                     processLoadEvent(event);
+                    setTimeout(function () {
+                        if (context.isInitialized()) {
+                            postPerformanceEvent(window);
+                        }
+                    }, utils.getValue(config, "delay", 2000));
+                    break;
+                case "screenview_load":
+                    if (!moduleState.perfEventSent) {
+                        postPerformanceEvent(window);
+                    }
                     break;
                 case "unload":
                     moduleState.unloadReceived = true;
                     // Force the performance data to be posted (if it hasn't been done already.)
                     if (!moduleState.perfEventSent) {
-                        // TODO: Directly referencing the global window but may want to sandbox this.
                         postPerformanceEvent(window);
                     }
                     break;
@@ -10169,9 +11229,14 @@ if (TLT && typeof TLT.addModule === "function") {
 }
 
 /**
- * Licensed Materials - Property of IBM
- * � Copyright IBM Corp. 2017
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
+ * Copyright (c) 2019 Acoustic, L.P. All rights reserved.
+ *
+ * NOTICE: This file contains material that is confidential and proprietary to
+ * Acoustic, L.P. and/or other developers. No license is granted under any intellectual or
+ * industrial property rights of Acoustic, L.P. except as may be provided in an agreement with
+ * Acoustic, L.P. Any unauthorized copying or distribution of content from this file is
+ * prohibited.
+ *
  */
 
 /**
@@ -10180,7 +11245,7 @@ if (TLT && typeof TLT.addModule === "function") {
  * @exports replay
  */
 
-/*global TLT:true */
+/*global TLT:true, MouseEvent, PointerEvent */
 
 // Sanity check
 TLT.addModule("replay", function (context) {
@@ -10199,7 +11264,6 @@ TLT.addModule("replay", function (context) {
         firstDOMCaptureEventFlag = true,
         curClientState = null,
         pastClientState = null,
-        onerrorHandled = false,
         errorCount = 0,
         visitOrder = "",
         lastVisit = "",
@@ -10213,25 +11277,25 @@ TLT.addModule("replay", function (context) {
         nextScrollViewStart = null,
         viewPortXStart = 0,
         viewPortYStart = 0,
-        inBetweenEvtsTimer = null,
         lastFocusEvent = { inFocus: false },
         lastClickEvent = null,
-        //TODO move these to a global section due to they might be used elsewhere
-        isApple = utils.isiOS,
-        isAndroidChrome = navigator.userAgent.indexOf("Chrome") > -1 && utils.isAndroid,
-        devicePixelRatio = window.devicePixelRatio || 1,
-        deviceToolbarHeight = (window.screen ? window.screen.height - window.screen.availHeight : 0),
         replayConfig = context.getConfig() || {},
         viewPortWidthHeightLimit = utils.getValue(replayConfig, "viewPortWidthHeightLimit", 10000),
         deviceScale = 1,
         previousDeviceScale = 1,
         extendGetItem,
-        gridValues = {
-            cellMaxX : 10,
-            cellMaxY : 10,
-            cellMinWidth: 20,
-            cellMinHeight : 20
-        };
+        loggedExceptions = {},
+        mousemoveConfig = utils.getValue(replayConfig, "mousemove") || {},
+        sessionStart = context.getSessionStart(),
+        sampleRate = mousemoveConfig.sampleRate,
+        ignoreRadius = mousemoveConfig.ignoreRadius,
+        lastMouseEvent = null,
+        mousemoveQueue = [],
+        mousemoveElements = [],
+        elMap = {},
+        mousemoveCount = 0,
+        mousemoveLimit = 1000,
+        maxInactivity = 0;
 
     /**
      * Resets the visitedCount of all controls recorded in pastEvents.
@@ -10386,6 +11450,95 @@ TLT.addModule("replay", function (context) {
     }
 
     /**
+     * check the target screenview is in the blacklist or not.
+     * @private
+     * @param {Array} dcScreenviewBlacklist, a list of blacklisted screenview names
+     * @param {string} screenviewName, target screenview name
+     * @return {boolean} true if a match is found
+     */
+    function isScreenviewBlacklisted(dcScreenviewBlacklist, screenviewName) {
+        var i, len,
+            screenview,
+            targetScreenview;
+
+        for (i = 0, len = dcScreenviewBlacklist.length; i < len; i += 1) {
+            screenview = dcScreenviewBlacklist[i];
+            if (screenviewName && screenviewName.indexOf("#") === 0) {
+                //in case of hash change
+                targetScreenview = location.pathname + screenviewName;
+            } else if (typeof screenviewName === "undefined" || screenviewName === "root") {
+                //in case of no screenview name
+                targetScreenview = location.pathname + location.hash;
+            } else {
+                targetScreenview = screenviewName;
+            }
+            targetScreenview = context.normalizeUrl(targetScreenview);
+            switch (typeof screenview) {
+            case "object":
+                if (!screenview.cRegex) {
+                    screenview.cRegex = new RegExp(screenview.regex, screenview.flags);
+                }
+                screenview.cRegex.lastIndex = 0;
+                if (screenview.cRegex.test(targetScreenview)) {
+                    return true;
+                }
+                break;
+            case "string":
+                if (screenview === targetScreenview) {
+                    return true;
+                }
+                break;
+            default:
+                break;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Posts all mousemove events from a queue to the message service.
+     * The array is cleared on exit from the function.
+     * @private
+     * @return void
+     */
+    function logMousemove() {
+        var limitReached = false,
+            msg;
+
+        if (!mousemoveConfig.enabled) {
+            return;
+        }
+        if (mousemoveQueue.length === 0) {
+            return;
+        }
+        if (mousemoveCount >= mousemoveLimit) {
+            limitReached = true;
+        }
+        msg = {
+            type: 18,
+            mousemove: {
+                elements: mousemoveElements.slice(0),
+                data: mousemoveQueue.slice(0),
+                config: {
+                    ignoreRadius: mousemoveConfig.ignoreRadius,
+                    sampleRate: mousemoveConfig.sampleRate
+                },
+                limitReached: limitReached,
+                maxInactivity: maxInactivity
+            }
+        };
+        context.post(msg);
+
+        mousemoveElements.length = 0;
+        mousemoveQueue.length = 0;
+        elMap = {};
+        maxInactivity = 0;
+
+        return msg;
+    }
+
+    /**
      * Check the DOM capture rules to see if DOM capture should be triggered for this combination
      * of event, target, screenview as applicable.
      * @private
@@ -10407,7 +11560,9 @@ TLT.addModule("replay", function (context) {
             len,
             screenview,
             screenviews,
-            screenviewsLen;
+            screenviewsLen,
+            targetScreenview,
+            dcScreenviewBlacklist;
 
         // Sanity check
         if (!eventType || (!target && !screenviewName)) {
@@ -10424,6 +11579,12 @@ TLT.addModule("replay", function (context) {
             return dcid;
         }
 
+        dcScreenviewBlacklist = utils.getValue(replayConfig, "domCapture.screenviewBlacklist", []);
+        if (isScreenviewBlacklisted(dcScreenviewBlacklist, screenviewName)) {
+            //screen view matches blacklist
+            return dcid;
+        }
+
         dcTriggerList = utils.getValue(replayConfig, "domCapture.triggers") || [];
         for (i = 0, len = dcTriggerList.length; !capture && i < len; i += 1) {
             dcTrigger = dcTriggerList[i];
@@ -10437,11 +11598,13 @@ TLT.addModule("replay", function (context) {
                             switch (typeof screenview) {
                             case "object":
                                 // Regex match
-                                if (!screenview.rgxp) {
+                                if (!screenview.cRegex) {
                                     // Cache the regex object for future
-                                    screenview.rgxp = new RegExp(screenview.regex, screenview.flags);
+                                    screenview.cRegex = new RegExp(screenview.regex, screenview.flags);
                                 }
-                                capture = screenview.rgxp.test(screenviewName);
+                                // Reset and test
+                                screenview.cRegex.lastIndex = 0;
+                                capture = screenview.cRegex.test(screenviewName);
                                 break;
                             case "string":
                                 capture = (screenview === screenviewName);
@@ -10470,6 +11633,9 @@ TLT.addModule("replay", function (context) {
             captureConfig.forceFullDOM = !!dcTrigger.fullDOMCapture;
 
             dcid = scheduleDOMCapture(window.document, captureConfig, delay);
+            if (dcid) {
+                logMousemove();
+            }
         }
 
         return dcid;
@@ -10492,14 +11658,12 @@ TLT.addModule("replay", function (context) {
      */
     function createQueueEvent(options) {
         var control,
-            dcid,
             target        = utils.getValue(options, "webEvent.target", {}),
             targetType    = target.type,
             targetSubtype = target.subType || "",
             tlType        = utils.getTlType(target),
             parents       = parentElements(utils.getValue(target, "element")),
             parentLinkNode = null,
-            relXY         = utils.getValue(target, "position.relXY"),
             eventSubtype  = utils.getValue(options, "webEvent.subType", null);
 
         control = {
@@ -10525,10 +11689,6 @@ TLT.addModule("replay", function (context) {
 
         if (targetSubtype) {
             control.target.subType = targetSubtype;
-        }
-
-        if (relXY) {
-            control.target.position.relXY = relXY;
         }
 
         if (typeof options.dwell === "number" && options.dwell > 0) {
@@ -10572,16 +11732,6 @@ TLT.addModule("replay", function (context) {
         }
         if (utils.isUndefOrNull(control.target.name)) {
             delete control.target.name;
-        }
-
-        // Check if DOM Capture needs to be triggered for this message.
-        // If the event is click then DOM capture is only allowed if the target is click-able
-        if (control.event.type !== "click" || isTargetClickable(target)) {
-            // Check and add DOM Capture
-            dcid = addDOMCapture(control.event.type, target);
-            if (dcid) {
-                control.dcid = dcid;
-            }
         }
 
         return control;
@@ -10660,14 +11810,27 @@ TLT.addModule("replay", function (context) {
     }
 
 
-    if (typeof window.onerror !== "function") {
-        window.onerror = function (msg, url, line) {
-            var errorMessage = null;
+    function handleError(webEvent) {
+        var errorMessage = null,
+            i,
+            msg = utils.getValue(webEvent, "nativeEvent.message"),
+            url = utils.getValue(webEvent, "nativeEvent.filename"),
+            line = utils.getValue(webEvent, "nativeEvent.lineno"),
+            errorObject = utils.getValue(webEvent, "nativeEvent.error");
 
-            if (typeof msg !== "string") {
-                return;
-            }
-            line = line || -1;
+        if (typeof msg !== "string") {
+            return;
+        }
+        line = line || -1;
+        if (errorObject && errorObject.stack) {
+            i = errorObject.stack.toString();
+        } else {
+            i = (msg + " " + url + " " + line).toString();
+        }
+
+        if (loggedExceptions[i]) {
+            loggedExceptions[i].exception.repeats = loggedExceptions[i].exception.repeats + 1;
+        } else {
             errorMessage = {
                 type: 6,
                 exception: {
@@ -10676,32 +11839,19 @@ TLT.addModule("replay", function (context) {
                     line: line
                 }
             };
-
-            errorCount += 1;
             context.post(errorMessage);
-        };
-        onerrorHandled = true;
-    }
 
-    /**
-     * Handles the focus events. It is fired either when the real focus event take place
-     * or right after the click event on an element (only when browser focus event was not fired)
-     * @private
-     * @param {string} id ID of an elment
-     * @param {WebEvent} webEvent Normalized browser event
-     * @return void
-     */
-    function handleFocus(id, webEvent) {
-        lastFocusEvent = webEvent;
-        lastFocusEvent.inFocus = true;
-        if (typeof pastEvents[id] === "undefined") {
-            pastEvents[id] = {};
+            loggedExceptions[i] = {
+                exception: {
+                    description: msg,
+                    url: url,
+                    line: line,
+                    repeats: 1
+                }
+            };
         }
 
-        pastEvents[id].focus = lastFocusEvent.dwellStart = Number(new Date());
-        pastEvents[id].focusInOffset = viewTimeStart ? lastFocusEvent.dwellStart - Number(viewTimeStart) : -1;
-        pastEvents[id].prevState = utils.getValue(webEvent, "target.state");
-        pastEvents[id].visitedCount = pastEvents[id].visitedCount + 1 || 1;
+        errorCount += 1;
     }
 
     /**
@@ -10728,158 +11878,218 @@ TLT.addModule("replay", function (context) {
      * the last change event from the tmpQueue.
      * @private
      * @param {string} id ID of an elment
-     * @param {WebEvent} webEvent Normalized browser event
+     * @param {WebEvent} [webEvent] Normalized browser event
+     * @param {Boolean} [doNotConvert] true if event should be posted as-is without converting to "change" or "blur"
      * @return void
      */
-    function handleBlur(id, webEvent) {
+    function handleBlur(id, webEvent, doNotConvert) {
         var convertToBlur = false,
+            convertToChange = false,
             dcid,
             lastQueueEvent,
+            targetState,
             i = 0;
 
-        if (typeof id === "undefined" || id === null || typeof webEvent === "undefined" || webEvent === null) {
+        // Sanity check
+        if (!id) {
             return;
         }
 
-        if (typeof pastEvents[id] !== "undefined" && pastEvents[id].hasOwnProperty("focus")) {
-            pastEvents[id].dwell =  Number(new Date()) - pastEvents[id].focus;
-        } else {
-            // Blur without any prior event on this control.
-            pastEvents[id] = {};
-            pastEvents[id].dwell = 0;
-        }
-
         if (tmpQueue.length === 0) {
-            if (!lastFocusEvent.inFocus) {
-                // Orphaned blur without any prior event.
-                return;
-            }
-            addToTmpQueue(webEvent, id);
+            // Empty tmpQueue means there are no pending messages to handle
+            return;
         }
 
-        // Reset the inFocus state of the lastFocusEvent
-        lastFocusEvent.inFocus = false;
-
-        // Visited count is missing
-        if (tmpQueue[tmpQueue.length - 1]) {
-            for (i = tmpQueue.length - 1; i >= 0; i--) {
-                tmpQueue[i].target.visitedCount = pastEvents[id].visitedCount;
-            }
+        webEvent = webEvent || (pastEvents[id] ? pastEvents[id].webEvent : {});
+        if (webEvent.type === "blur" || webEvent.type === "change") {
+            targetState = utils.getValue(webEvent, "target.state", null);
+        } else if (webEvent.target) {
+            targetState = utils.getTargetState(webEvent.target.element) || {};
+        } else {
+            targetState = {};
         }
 
         lastQueueEvent = tmpQueue[tmpQueue.length - 1];
-        if (lastQueueEvent) {
-            lastQueueEvent.target.dwell = pastEvents[id].dwell;
+
+        if (pastEvents[id]) {
             lastQueueEvent.focusInOffset = pastEvents[id].focusInOffset;
             lastQueueEvent.target.visitedCount = pastEvents[id].visitedCount;
 
-            // if the click (without generating change event) fires on an
-            // input element for which it's not relevant - report event as a blur and update the currState
-            if (lastQueueEvent.event.type === "click") {
-                if (!isTargetClickable(lastQueueEvent.target)) {
-                    lastQueueEvent.target.currState = utils.getValue(webEvent, "target.state") || utils.getValue(webEvent, "target.currState");
-                    convertToBlur = true;
-                }
-            } else if (lastQueueEvent.event.type === "focus") {
-                convertToBlur = true;
+            if (pastEvents[id].focus) {
+                pastEvents[id].dwell = Number(new Date()) - pastEvents[id].focus;
+                lastQueueEvent.target.dwell = pastEvents[id].dwell;
             }
 
-            if (convertToBlur) {
-                lastQueueEvent.event.type = "blur";
-                lastQueueEvent.event.tlEvent = "focusout";
-                // Check if DOM Capture needs to be triggered for this message.
-                dcid = addDOMCapture(lastQueueEvent.event.type, webEvent.target);
-                if (dcid) {
-                    lastQueueEvent.dcid = dcid;
+            if (!pastEvents[id].processedChange && pastEvents[id].prevState && !doNotConvert) {
+                // Should this blur be converted to a change event?
+                if (!utils.isEqual(pastEvents[id].prevState, targetState)) {
+                    convertToChange = true;
+                    webEvent.type = "change";
+                    lastQueueEvent.event.type = webEvent.type;
+                    lastQueueEvent.event.tlEvent = getTlEvent(webEvent);
+                    lastQueueEvent.target.prevState = pastEvents[id].prevState;
+                    lastQueueEvent.target.currState = targetState;
                 }
             }
+        } else {
+            // Blur without any record of a prior event on this control.
+            pastEvents[id] = {};
         }
+
+        // if the click (without generating change event) fires on an
+        // input element for which it's not relevant - report event as a blur and update the currState
+        if (lastQueueEvent.event.type === "click") {
+            if (!isTargetClickable(lastQueueEvent.target)) {
+                lastQueueEvent.target.currState = targetState;
+                convertToBlur = true;
+            }
+        } else if (lastQueueEvent.event.type === "focus") {
+            convertToBlur = true;
+        }
+
+        if (convertToBlur && !doNotConvert) {
+            lastQueueEvent.event.type = "blur";
+            lastQueueEvent.event.tlEvent = "focusout";
+        }
+
+        if (!lastQueueEvent.dcid) {
+            // Check if DOM Capture needs to be triggered for this message.
+            dcid = addDOMCapture(lastQueueEvent.event.type, webEvent.target);
+            if (dcid) {
+                lastQueueEvent.dcid = dcid;
+            }
+        }
+
+        if (!doNotConvert) {
+            // Reset the inFocus state of the lastFocusEvent
+            lastFocusEvent.inFocus = false;
+        }
+
+        // Save current target state as future prevState
+        pastEvents[id].prevState = targetState;
 
         postEventQueue(tmpQueue);
     }
 
     /**
-     * Checks to see in tmpQueue there is an older control that needs to be posted to server.
+     * Handles the focus events. It is fired either when the real focus event take place
+     * or right after the click event on an element (only when browser focus event was not fired)
      * @private
      * @param {string} id ID of an elment
      * @param {WebEvent} webEvent Normalized browser event
-     * @return {Boolean} True if there was an older control that has been sent to server, false otherwise.
+     * @return void
      */
-    function checkQueue(id, webEvent) {
-        var hasInQueue = false,
-            tmpQueueLength = tmpQueue.length,
-            tmpQueueEvent = tmpQueueLength > 0 ? tmpQueue[tmpQueueLength - 1] : null;
+    function handleFocus(id, webEvent) {
+        var tmpQueueLength = tmpQueue.length,
+            tmpQueueEvent = tmpQueueLength ? tmpQueue[tmpQueueLength - 1] : null;
 
-        // Return immediately if there is nothing pending in the tmpQueue
-        if (!tmpQueueEvent) {
-            return hasInQueue;
-        }
-
-        // Check if there is a focus, click or change on a different element than one in the tmpQueue
-        // Select lists are an exception because the option element can be selected
-        if (tmpQueueEvent.target.id !== id && tmpQueueEvent.target.tltype !== "selectList") {
-            // Is there is a focus, click or change event on another element
-            if (webEvent.type === "focus" || webEvent.type === "click" || webEvent.type === "change") {
-                // Synthetic blur using the last recorded event on the previous element
-                handleBlur(tmpQueueEvent.target.id, tmpQueueEvent);
-                hasInQueue = true;
+        // Check if target is already in focus
+        if (lastFocusEvent.inFocus && lastFocusEvent.target.id === id) {
+            if (!tmpQueueEvent || tmpQueueEvent.target.id !== id) {
+                // Target is already in focus but the event is not added to tmpQueue yet
+                addToTmpQueue(webEvent, id);
+                // Reset prior change & click processing states.
+                pastEvents[id].processedChange = false;
+                pastEvents[id].processedClick = false;
             }
+            return;
         }
-        return hasInQueue;
+
+        if (lastFocusEvent.inFocus) {
+            // Synthetic blur on the previously in-focus element
+            handleBlur(lastFocusEvent.target.id, lastFocusEvent);
+        }
+
+        lastFocusEvent = webEvent;
+        lastFocusEvent.inFocus = true;
+        if (!pastEvents[id]) {
+            pastEvents[id] = {};
+        }
+
+        pastEvents[id].focus = lastFocusEvent.dwellStart = Number(new Date());
+        pastEvents[id].focusInOffset = viewTimeStart ? lastFocusEvent.dwellStart - Number(viewTimeStart) : -1;
+        // prevState is derived on focus or prior blur (if any). If neither of these is available then prevState is derived from the click event.
+        if (webEvent.type === "focus" || (webEvent.type === "click" && !pastEvents[id].prevState)) {
+            pastEvents[id].prevState = utils.getValue(webEvent, "target.state");
+        }
+        pastEvents[id].visitedCount = pastEvents[id].visitedCount + 1 || 1;
+        pastEvents[id].webEvent = webEvent;
+        pastEvents[id].processedChange = false;
+        pastEvents[id].processedClick = false;
+
+        addToTmpQueue(webEvent, id);
     }
 
     /**
-     * Handles change and click events. Its called when browser 'change' event fires
-     * or together with click event (from 'handleClick' method).
+     * Checks the tmpQueue for any prior/pending interaction that needs to be posted.
+     * @private
+     * @param {string} id ID of the current element being interacted with.
+     * @param {WebEvent} webEvent Normalized browser event of the current interaction.
+     * @return {Boolean} True if there was a pending interaction that has been posted, false otherwise.
+     */
+    function checkQueue(id, webEvent) {
+        var pendingInteractionPosted = false,
+            prevID,
+            prevEventType,
+            tmpQueueLength = tmpQueue.length,
+            tmpQueueEvent = tmpQueueLength ? tmpQueue[tmpQueueLength - 1] : null;
+
+        // Return immediately if there is nothing pending in the tmpQueue
+        if (!tmpQueueEvent) {
+            return pendingInteractionPosted;
+        }
+
+        prevID = tmpQueueEvent.target.id;
+        prevEventType = tmpQueueEvent.event.type;
+
+        // Check if there is a focus, click or change on a different element than one in the tmpQueue
+        // Select lists are an exception because the option element can be selected
+        if (prevID !== id && tmpQueueEvent.target.tltype !== "selectList") {
+            // Is there is a focus, click or change event on another element
+            if (webEvent.type === "focus" || webEvent.type === "click" || webEvent.type === "change" || webEvent.type === "blur") {
+                // Synthetic blur on the previous element
+                handleBlur(prevID);
+                pendingInteractionPosted = true;
+            }
+        }
+
+        // Check if there is a repeating click/change on the same input element.
+        if (prevID === id &&
+                ((webEvent.type === "click" && pastEvents[id].processedClick) ||
+                (webEvent.type === "change" && pastEvents[id].processedChange))) {
+            // Post the prior click or change
+            handleBlur(prevID, null, true);
+            pendingInteractionPosted = true;
+        }
+
+        return pendingInteractionPosted;
+    }
+
+    /**
+     * Handles change events. Its called when the browser 'change' event fires.
      * @private
      * @param {string} id ID of an elment
      * @param {WebEvent} webEvent Normalized browser event
      * @return void
      */
     function handleChange(id, webEvent) {
-        if (typeof pastEvents[id] !== "undefined" && !pastEvents[id].hasOwnProperty("focus")) {
-            handleFocus(id, webEvent);
+        var tmpQueueEvent;
+
+        // Ensure focus is processed for the target element
+        handleFocus(id, webEvent);
+
+        tmpQueueEvent = tmpQueue[tmpQueue.length - 1];
+        tmpQueueEvent.event.type = "change";
+        tmpQueueEvent.event.tlEvent = getTlEvent(webEvent);
+        tmpQueueEvent.target.currState = webEvent.target.state;
+        if (pastEvents[id].prevState) {
+            tmpQueueEvent.target.prevState = pastEvents[id].prevState;
         }
 
-        addToTmpQueue(webEvent, id);
-
-        if (typeof pastEvents[id] !== "undefined" && typeof pastEvents[id].prevState !== "undefined") {
-            // TODO: Optimize the index by storing tmpQueue.length - 1 to a variable.
-            if (tmpQueue[tmpQueue.length - 1].target.tlType === "textBox" ||
-                    tmpQueue[tmpQueue.length - 1].target.tlType === "selectList") {
-                tmpQueue[tmpQueue.length - 1].target.prevState = pastEvents[id].prevState;
-            }
-        }
+        pastEvents[id].webEvent = webEvent;
+        pastEvents[id].processedChange = true;
     }
 
-    /**
-     * Sets the relative X & Y values to a webEvent.
-     * Same as the overstat module - break node into a grid based on cell size limitations, and the size of the element itself
-     * @private
-     * @param {WebEvent} webEvent Normalized browser event
-     * @return String value of relative X & Y
-     */
-    function getRelativeXY(webEvent) {
-        var cellWidth,
-            cellHeight,
-            cellX,
-            cellY,
-            node = utils.getValue(webEvent, "target.element", {}),
-            nodeWidth = utils.getValue(webEvent, "target.size.width", node.offsetWidth),
-            nodeHeight = utils.getValue(webEvent, "target.size.height", node.offsetHeight),
-            offsetX = utils.getValue(webEvent, "target.position.x", 0),
-            offsetY = utils.getValue(webEvent, "target.position.y", 0);
-
-        cellWidth = nodeWidth ? Math.max(nodeWidth / gridValues.cellMaxX, gridValues.cellMinWidth) : gridValues.cellMinWidth;
-        cellHeight = nodeHeight ? Math.max(nodeHeight / gridValues.cellMaxY, gridValues.cellMinHeight) : gridValues.cellMinHeight;
-        cellX = Math.floor(offsetX / cellWidth);
-        cellY = Math.floor(offsetY / cellHeight);
-
-        if (!isFinite(cellX)) { cellX = 0; }
-        if (!isFinite(cellY)) { cellY = 0; }
-
-        return cellX + "," + cellY;
-    }
 
     /**
      * Handles click events. Additionally it recognizes situations when browser didn't
@@ -10890,57 +12100,116 @@ TLT.addModule("replay", function (context) {
      * @return void
      */
     function handleClick(id, webEvent) {
-        var relXY,
-            addRelXY = true,
-            tmpQueueLength = 0;
+        var tmpQueueEvent,
+            nativeEvent;
 
         if (webEvent.target.type === "select" && lastClickEvent && lastClickEvent.target.id === id) {
             lastClickEvent = null;
             return;
         }
 
-        if (!lastFocusEvent.inFocus) {
-            handleFocus(id, webEvent);
-        }
+        // Ensure focus is registered for the element being clicked
+        handleFocus(id, webEvent);
 
-        // Sometimes the change triggers before the click (observed in Chrome and Android)
-        // XXX - Not sure I fully understand this logic - MP
-        tmpQueueLength = tmpQueue.length;
-        if (tmpQueueLength && utils.getValue(tmpQueue[tmpQueueLength - 1], "event.type") !== "change") {
-            handleChange(id, webEvent);
-        }
-
-        relXY = getRelativeXY(webEvent);
-
-        // During use of arrow keys to select a radio option, it throws a click event after change event
-        // which is incorrect for usability data. We only capture user clicks and not framework clicks.
-        tmpQueueLength = tmpQueue.length;
-
-        if (webEvent.position.x === 0 && webEvent.position.y === 0 && tmpQueueLength &&
-                utils.getValue(tmpQueue[tmpQueueLength - 1], "target.tlType") === "radioButton") {
-            addRelXY = false;
-        } else {
-            // For all other cases, record the relXY in the target.position
-            webEvent.target.position.relXY = relXY;
-        }
 
         // Update the existing queue entry with relXY info. from the click event
-        if (tmpQueueLength &&
-                utils.getValue(tmpQueue[tmpQueueLength - 1], "target.id") === id) {
-            if (addRelXY) {
-                tmpQueue[tmpQueueLength - 1].target.position.relXY = relXY;
+        tmpQueueEvent = tmpQueue[tmpQueue.length - 1];
+        if (tmpQueueEvent.event.type === "focus") {
+            tmpQueueEvent.event.type = "click";
+            tmpQueueEvent.event.tlEvent = getTlEvent(webEvent);
+        }
+        nativeEvent = webEvent.nativeEvent;
+        // relXY shouldn't be contained when there is no mouse click.
+        if (nativeEvent && (!window.MouseEvent || !(nativeEvent instanceof MouseEvent && nativeEvent.detail === 0) ||
+            (window.PointerEvent && nativeEvent instanceof PointerEvent && nativeEvent.pointerType !== ""))) {
+            tmpQueueEvent.target.position.relXY = utils.getValue(webEvent, "target.position.relXY");
+        }
+
+        // MSIE/Edge can trigger "change" before "click" for the same user action on checkbox/radio
+        // in which case do not overwrite the stored change event.
+        if (!pastEvents[id].processedChange) {
+            pastEvents[id].webEvent = webEvent;
+        }
+        pastEvents[id].processedClick = true;
+
+        // For clickable targets, process and post the click right away
+        if (isTargetClickable(webEvent.target)) {
+            handleBlur(id, webEvent);
+        }
+
+        lastClickEvent = webEvent;
+    }
+
+    /**
+     * Handles the mousemove event and posts the appropriate message to the
+     * replay module's queue
+     * @private
+     * @function
+     * @name replay-handleMousemove
+     * @param {object} webEvent A normalized event object per the WebEvent
+     * interface definition.
+     */
+    function handleMousemove(webEvent) {
+        var currentEvent,
+            diff = 0,
+            distance = 0,
+            el,
+            id,
+            relXY,
+            x,
+            y;
+
+        if (!mousemoveConfig.enabled) {
+            return;
+        }
+
+        if (mousemoveCount >= mousemoveLimit) {
+            return;
+        }
+
+        currentEvent = {
+            element: {
+                id: webEvent.target.id,
+                idType: webEvent.target.idType
+            },
+            x: webEvent.position.x,
+            y: webEvent.position.y,
+            offset: webEvent.timestamp - sessionStart
+        };
+
+        if (lastMouseEvent !== null) {
+            diff = currentEvent.offset - lastMouseEvent.offset;
+            if (sampleRate && diff < sampleRate) {
+                return;
             }
-        } else {
-            // Else add the click event to the queue
-            addToTmpQueue(webEvent, id);
-            // For clickable targets, process and post the click right away
-            if (isTargetClickable(webEvent.target)) {
-                handleBlur(id, webEvent);
+            x = Math.abs(currentEvent.x - lastMouseEvent.x);
+            y = Math.abs(currentEvent.y - lastMouseEvent.y);
+            distance = (x > y) ? x : y;
+            if (ignoreRadius && distance < ignoreRadius) {
+                return;
+            }
+            if (diff > maxInactivity) {
+                maxInactivity = diff;
             }
         }
 
-        // XXX - What is lastClickEvent being used for? - MP
-        lastClickEvent = webEvent;
+        el = JSON.stringify(currentEvent.element);
+        id = elMap[el];
+        if (typeof id === "undefined") {
+            mousemoveElements.push(currentEvent.element);
+            id = mousemoveElements.length - 1;
+            elMap[el] = id;
+        }
+
+        // Get relative x y from webEvent
+        relXY = utils.getValue(webEvent, "target.position.relXY").split(",");
+
+        // Push event
+        mousemoveQueue.push([id, relXY[0], relXY[1], currentEvent.offset]);
+
+        mousemoveCount += 1;
+
+        lastMouseEvent = currentEvent;
     }
 
     /**
@@ -11033,23 +12302,23 @@ TLT.addModule("replay", function (context) {
      * @return {object} Client state message object.
      */
     function getClientStateMessage(webEvent) {
-        var documentElement = document.documentElement,
-            documentBody = document.body,
+        var documentElement = document.documentElement || {},
+            documentBody = document.body || {},
             screen = window.screen,
             screenWidth = screen.width,
             screenHeight = screen.height,
             deviceOrientation = utils.getValue(webEvent, "orientation", 0),
             // iOS Safari always reports the screen width of the portrait mode
-            normalizedScreenWidth = !isApple ? screenWidth : Math.abs(deviceOrientation) === 90 ? screenHeight : screenWidth,
+            normalizedScreenWidth = !utils.isiOS ? screenWidth : Math.abs(deviceOrientation) === 90 ? screenHeight : screenWidth,
             msg = {
                 type: 1,
                 clientState: {
-                    pageWidth: document.width || (!documentElement ? 0 : documentElement.offsetWidth),
-                    pageHeight: Math.max((!document.height ? 0 : document.height), (!documentElement ? 0 : documentElement.offsetHeight), (!documentElement ? 0 : documentElement.scrollHeight)),
+                    pageWidth: Math.max(documentBody.clientWidth || 0, documentElement.offsetWidth || 0, documentElement.scrollWidth || 0),
+                    pageHeight: Math.max(documentBody.clientHeight || 0, documentElement.offsetHeight || 0, documentElement.scrollHeight || 0),
                     viewPortWidth: window.innerWidth || documentElement.clientWidth,
                     viewPortHeight: window.innerHeight || documentElement.clientHeight,
-                    viewPortX: Math.round(window.pageXOffset || (!documentElement ? (!documentBody ? 0 : documentBody.scrollLeft) : documentElement.scrollLeft || 0)),
-                    viewPortY: Math.round(window.pageYOffset || (!documentElement ? (!documentBody ? 0 : documentBody.scrollTop) : documentElement.scrollTop || 0)),
+                    viewPortX: Math.round(window.pageXOffset || (documentElement || documentBody).scrollLeft || 0),
+                    viewPortY: Math.round(window.pageYOffset || (documentElement || documentBody).scrollTop || 0),
                     deviceOrientation: deviceOrientation,
                     event: utils.getValue(webEvent, "type")
                 }
@@ -11308,7 +12577,6 @@ TLT.addModule("replay", function (context) {
     }
 
 
-
     /**
      * Default handler for event types that are not being processed by the module.
      * @private
@@ -11339,32 +12607,6 @@ TLT.addModule("replay", function (context) {
         postUIEvent(msg);
     }
 
-    /**
-     * Add geolocation message if the event is a load event and the
-     * geolocation feature is enabled.
-     * @private
-     * @function
-     * @param {String} eventName The event name.
-     * @name replay-addGeolocationMsg
-     */
-    function addGeolocationMsg(eventName) {
-        var geolocationConfig = utils.getValue(replayConfig, "geolocation"),
-            triggers;
-
-        if (!geolocationConfig || !geolocationConfig.enabled) {
-            return;
-        }
-
-        triggers = geolocationConfig.triggers || [];
-        if (!triggers.length) {
-            return;
-        }
-
-        if (triggers[0].event === eventName) {
-            TLT.logGeolocation();
-        }
-    }
-
     return {
         init: function () {
             tmpQueue = [];
@@ -11373,17 +12615,20 @@ TLT.addModule("replay", function (context) {
             handleBlur(lastEventId);
             tmpQueue = [];
 
-            if (onerrorHandled) {
-                // Detach the onerror handler
-                window.onerror = null;
-                onerrorHandled = false;
+            // Clear out any pending clientState timeout
+            if (sendClientState.timeoutId) {
+                window.clearTimeout(sendClientState.timeoutId);
+                sendClientState.timeoutId = 0;
             }
         },
         onevent: function (webEvent) {
             var id = null,
                 returnObj = null,
                 orientation,
-                screenOrientation;
+                screenOrientation,
+                loggedException,
+                exception,
+                errorMessage = null;
 
             // Sanity checks
             if (typeof webEvent !== "object" || !webEvent.type) {
@@ -11400,12 +12645,11 @@ TLT.addModule("replay", function (context) {
 
             id = utils.getValue(webEvent, "target.id");
 
-            if (Object.prototype.toString.call(pastEvents[id]) !== "[object Object]") {
+            if (!pastEvents[id]) {
                 pastEvents[id] = {};
             }
 
             checkQueue(id, webEvent);
-            inBetweenEvtsTimer = new Date();
 
             switch (webEvent.type) {
             case "hashchange":
@@ -11469,9 +12713,6 @@ TLT.addModule("replay", function (context) {
                     }
                 }, 100);
 
-                // Check and add geolocation
-                addGeolocationMsg(webEvent.type);
-
                 // XXX - Use the context instead?
                 TLT.logScreenviewLoad("root");
 
@@ -11503,8 +12744,21 @@ TLT.addModule("replay", function (context) {
 
                 break;
             case "unload":
+                for (loggedException in loggedExceptions) {
+                    if (loggedExceptions.hasOwnProperty(loggedException)) {
+                        exception = loggedExceptions[loggedException].exception;
+                        if (exception.repeats > 1) {
+                            errorMessage = {
+                                type: 6,
+                                exception: exception
+                            };
+                            context.post(errorMessage);
+                        }
+                    }
+                }
+
                 // Flush any saved control
-                if (tmpQueue !== null) {
+                if (tmpQueue) {
                     postEventQueue(tmpQueue);
                 }
 
@@ -11517,6 +12771,12 @@ TLT.addModule("replay", function (context) {
                 // XXX - Use the context instead?
                 TLT.logScreenviewUnload("root");
 
+                break;
+            case "mousemove":
+                handleMousemove(webEvent);
+                break;
+            case "error":
+                handleError(webEvent);
                 break;
             default:
                 // Call the default handler for all other DOM events
@@ -11531,3 +12791,13 @@ TLT.addModule("replay", function (context) {
         }
     };
 });
+
+
+
+
+
+
+
+
+
+
