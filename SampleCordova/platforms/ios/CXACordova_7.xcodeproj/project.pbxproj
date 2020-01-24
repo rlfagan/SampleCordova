@@ -15,7 +15,6 @@
 		302D95F214D2391D003F00A1 /* MainViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 302D95F014D2391D003F00A1 /* MainViewController.xib */; };
 		66E92D0F1FBF8718006CA842 /* TLFResources.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 66E92D091FBF8717006CA842 /* TLFResources.bundle */; };
 		66E92D101FBF8718006CA842 /* EOCoreSettings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 66E92D0A1FBF8717006CA842 /* EOCoreSettings.bundle */; };
-		66E92D111FBF8718006CA842 /* libEOCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D0B1FBF8717006CA842 /* libEOCore.a */; };
 		66E92D121FBF8718006CA842 /* NSObject+TealeafEarlyLoads.m in Sources */ = {isa = PBXBuildFile; fileRef = 66E92D0D1FBF8717006CA842 /* NSObject+TealeafEarlyLoads.m */; };
 		66E92D131FBF8718006CA842 /* Tealeaf.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D0E1FBF8717006CA842 /* Tealeaf.framework */; };
 		66E92D151FBF87E9006CA842 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66E92D141FBF87DD006CA842 /* UIKit.framework */; };
@@ -30,6 +29,7 @@
 		66E92D271FBF891E006CA842 /* NSObject+TealeafEarlyLoads.h in Headers */ = {isa = PBXBuildFile; fileRef = 66E92D081FBF8717006CA842 /* NSObject+TealeafEarlyLoads.h */; };
 		66E92D281FBF8925006CA842 /* EOApplicationHelper.h in Headers */ = {isa = PBXBuildFile; fileRef = 66E92D0C1FBF8717006CA842 /* EOApplicationHelper.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		6AFF5BF91D6E424B00AB3073 /* CDVLaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6AFF5BF81D6E424B00AB3073 /* CDVLaunchScreen.storyboard */; };
+		99701B5823DB787E008DDF17 /* EOCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 99701B5723DB787E008DDF17 /* EOCore.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,6 +89,7 @@
 		66E92D241FBF88BB006CA842 /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
 		6AFF5BF81D6E424B00AB3073 /* CDVLaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = CDVLaunchScreen.storyboard; path = CXACordova_7/CDVLaunchScreen.storyboard; sourceTree = SOURCE_ROOT; };
 		8D1107310486CEB800E47090 /* CXACordova_7-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "CXACordova_7-Info.plist"; path = "CXACordova_7/CXACordova_7-Info.plist"; plistStructureDefinitionIdentifier = "com.apple.xcode.plist.structure-definition.iphone.info-plist"; sourceTree = SOURCE_ROOT; };
+		99701B5723DB787E008DDF17 /* EOCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = EOCore.framework; path = TealeafSDK/EOCore.framework; sourceTree = "<group>"; };
 		EB87FDF31871DA8E0020F90C /* www */ = {isa = PBXFileReference; lastKnownFileType = folder; name = www; path = ../../www; sourceTree = "<group>"; };
 		EB87FDF41871DAF40020F90C /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; name = config.xml; path = ../../config.xml; sourceTree = "<group>"; };
 		ED33DF2A687741AEAF9F8254 /* Bridging-Header.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "Bridging-Header.h"; sourceTree = "<group>"; };
@@ -101,7 +102,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				66E92D131FBF8718006CA842 /* Tealeaf.framework in Frameworks */,
-				66E92D111FBF8718006CA842 /* libEOCore.a in Frameworks */,
+				99701B5823DB787E008DDF17 /* EOCore.framework in Frameworks */,
 				66E92D151FBF87E9006CA842 /* UIKit.framework in Frameworks */,
 				66E92D171FBF87FC006CA842 /* MobileCoreServices.framework in Frameworks */,
 				66E92D191FBF880C006CA842 /* WebKit.framework in Frameworks */,
@@ -183,6 +184,7 @@
 		29B97323FDCFA39411CA2CEA /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				99701B5723DB787E008DDF17 /* EOCore.framework */,
 				66E92D241FBF88BB006CA842 /* libz.tbd */,
 				66E92D221FBF8868006CA842 /* SystemConfiguration.framework */,
 				66E92D201FBF8859006CA842 /* CoreTelephony.framework */,
@@ -299,6 +301,7 @@
 			developmentRegion = English;
 			hasScannedForEncodings = 1;
 			knownRegions = (
+				English,
 				en,
 			);
 			mainGroup = 29B97314FDCFA39411CA2CEA /* CustomTemplate */;

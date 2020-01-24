@@ -283,7 +283,7 @@
 /**
  Requests that the framework logs the layout of the screen w/o logging a screenview change event
  @param viewController - UIViewController object whose layout needs to be logged.
- @param andRelatedViews - Array of related views to be logged
+ @param views - Array of related views to be logged
  @return if the event was successfully logged or not.
  */
 -(BOOL)logScreenLayoutDynamicUpdateWithViewController:(UIViewController *)viewController andRelatedViews:(NSArray*)views ;

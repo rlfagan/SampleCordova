@@ -6,7 +6,7 @@
 	<string>6d7e83e5753f46758907b79335a65c7b</string>
 	<key>CaptureNativeGesturesOnWebview</key>
 	<false/>
-	<key>Connection</key>
+	<key>connection</key>
 	<integer>5</integer>
 	<key>DisableAutoInstrumentation</key>
 	<false/>
@@ -61,10 +61,12 @@
 	<integer>100</integer>
 	<key>PercentToCompressImage</key>
 	<integer>100</integer>
+	<key>ScreenShotPixelDensity</key>
+	<real>1.5</real>
 	<key>PostMessageUrl</key>
 	<string>http://devqa2.collector.tealeaf.test.spop-sl.com/collector/collectorPost</string>
-	<key>PrintScreen</key>
-	<integer>3</integer>
+	<key>printScreen</key>
+	<integer>2</integer>
 	<key>ScreenshotFormat</key>
 	<string>png</string>
 	<key>SessionTimeout</key>
