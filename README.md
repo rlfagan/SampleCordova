@@ -21,6 +21,7 @@ No AndroidX support.
 Go to **SampleCordova** directory and run
 
 **npm install**
+
 **cordova build**
 
 This will download all the third party tools.
