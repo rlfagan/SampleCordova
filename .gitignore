@@ -14,3 +14,4 @@ xcuserdata
 /SampleCordova/platforms/browser/www
 /SampleCordova/platforms/android/app/src/main/assets/www
 /SampleCordova/platforms/ios/CordovaLib/CordovaLib.xcodeproj/xcuserdata
+/SampleCordova/platforms/ios/Podfile.lock
