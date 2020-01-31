@@ -14,12 +14,14 @@ No AndroidX support.
 
 * Node 8+
 * npm 6+
+* cordova 9+
 
 ## Install Instructions
 
 Go to **SampleCordova** directory and run
 
 **npm install**
+**cordova build**
 
 This will download all the third party tools.
 
