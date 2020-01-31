@@ -10,9 +10,13 @@ ant-gen
 # Eclipse builds
 gen
 out
-# Gradle builds
+# Gradle build artifacts
+.gradle
+.gradletasknamecache
 /build
-app/build/
-CordovaLib/build/
-# Node modules
-cordova/node_modules/
+/CordovaLib/build
+/app/build
+gradle-app.setting
+/cordova/node_modules/
+# Android Studio
+.idea
