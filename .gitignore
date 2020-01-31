@@ -9,3 +9,4 @@
 /SampleCordova/node_modules
 .idea
 node_modules
+/SampleCordova/platforms/ios/build
