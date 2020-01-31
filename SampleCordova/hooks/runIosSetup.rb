@@ -2,10 +2,11 @@
 require 'fileutils'
 
 puts "Update podfile"
-podName = File.expand_path(File.dirname(File.dirname(__FILE__)) + "./platforms/ios/Podfile")
-puts podName
-FileUtils.cp_r 'Podfile', podName, remove_destination: true
-
-puts "cd ../platforms/ios && pod install"
-output = `cd ../platforms/ios && pod install`
+currentDir = Dir.pwd
+podOrig = "#{currentDir}/platforms/ios/Podfile"
+podNew = "#{currentDir}/hooks/Podfile"
+puts "Copy #{podNew} to #{podOrig}"
+FileUtils.cp_r podNew, podOrig, remove_destination: true
+puts "cd #{currentDir}/platforms/ios && pod install"
+output = `cd #{currentDir}/platforms/ios && pod install`
 puts output

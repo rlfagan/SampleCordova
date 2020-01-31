@@ -21,6 +21,6 @@
     <platform name="ios">
         <allow-intent href="itms:*" />
         <allow-intent href="itms-apps:*" />
-        <hook type="before_prepare" src="hooks/runIosSetup.rb" />
+        <hook type="before_compile" src="hooks/runIosSetup.rb" />
     </platform>
 </widget>

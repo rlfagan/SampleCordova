@@ -36,7 +36,7 @@
     <allow-intent href="geo:*" />
     <allow-intent href="itms:*" />
     <allow-intent href="itms-apps:*" />
-    <hook src="hooks/runIosSetup.rb" type="before_prepare" />
+    <hook src="hooks/runIosSetup.rb" type="before_compile" />
     <preference name="AllowInlineMediaPlayback" value="false" />
     <preference name="BackupWebStorage" value="cloud" />
     <preference name="DisallowOverscroll" value="false" />
