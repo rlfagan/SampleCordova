@@ -20,32 +20,14 @@
 package io.cordova.hellocordova;
 
 import android.os.Bundle;
-import android.view.MotionEvent;
-import android.view.View;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-
-import com.tl.uic.Tealeaf;
-import com.tl.uic.javascript.JavaScriptInterface;
-
-import org.apache.cordova.CordovaActivity;
-import org.apache.cordova.LOG;
-import org.apache.cordova.engine.SystemWebViewClient;
-import org.apache.cordova.engine.SystemWebViewEngine;
+import org.apache.cordova.*;
 
 public class MainActivity extends CordovaActivity
 {
-    public WebView webView;
-    public TestViewClient testViewClient;
-
     @Override
     public void onCreate(Bundle savedInstanceState)
     {
-        Tealeaf tealeaf = new Tealeaf(this.getApplication());
-        Tealeaf.enable();
-
         super.onCreate(savedInstanceState);
-        super.init();
 
         // enable Cordova apps to be started in the background
         Bundle extras = getIntent().getExtras();
@@ -55,53 +37,5 @@ public class MainActivity extends CordovaActivity
 
         // Set by <content src="index.html" /> in config.xml
         loadUrl(launchUrl);
-
-        SystemWebViewEngine engine = (SystemWebViewEngine) this.appView.getEngine();
-        testViewClient = new TestViewClient(engine);
-
-        webView = (WebView)engine.getView();
-        webView.clearCache(true);
-        webView.setWebViewClient(testViewClient);
-
-        WebSettings webSettings = webView.getSettings();
-        webSettings.setJavaScriptEnabled(true);
-
-        webView.addJavascriptInterface(new JavaScriptInterface(this.getApplicationContext(), Tealeaf.getPropertyName((View)webView).getId()), "tlBridge");
     }
-
-    public class TestViewClient extends SystemWebViewClient {
-        public TestViewClient(SystemWebViewEngine parentEngine) {
-            super(parentEngine);
-            LOG.d("userwebview", "TestViewClient()");
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public boolean shouldOverrideUrlLoading(final WebView view, final String url) {
-            view.loadUrl(url);
-            return true;
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        public void onPageStarted(final WebView view, final String url) {
-            view.loadUrl("javascript:TLT.registerBridgeCallbacks([ "
-                    + "{enabled: true, cbType: 'screenCapture', cbFunction: function (){tlBridge.screenCapture();}},"
-                    + "{enabled: true, cbType: 'messageRedirect', cbFunction: function (data){tlBridge.addMessage(data);}}]);");
-        }
-    }
-
-    /* Add touch event to collect gestures for Tealeaf.
- *
- * (non-Javadoc)
- * @see android.app.Activity#dispatchTouchEvent(android.view.MotionEvent)
- */
-//    public boolean dispatchTouchEvent(MotionEvent e) {
-//        //detector.onTouchEvent(e);
-//        Tealeaf.dispatchTouchEvent(this, e);
-//        return super.dispatchTouchEvent(e);
-//    }
 }
