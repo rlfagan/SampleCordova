@@ -12,3 +12,4 @@ node_modules
 /SampleCordova/platforms/ios/build
 xcuserdata
 /SampleCordova/platforms/browser/www
+/SampleCordova/platforms/android/app/src/main/assets/www
