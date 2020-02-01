@@ -27,12 +27,18 @@
 
 #import "AppDelegate.h"
 #import "MainViewController.h"
+#import "Tealeaf/TLFApplicationHelper.h"
 
 @implementation AppDelegate
 
 - (BOOL)application:(UIApplication*)application didFinishLaunchingWithOptions:(NSDictionary*)launchOptions
 {
     self.viewController = [[MainViewController alloc] init];
+    
+    [[TLFApplicationHelper sharedInstance] enableTealeafFramework];
+    NSLog(@"HEY: %@", [[TLFApplicationHelper sharedInstance] currentSessionId]);
+    
+    
     return [super application:application didFinishLaunchingWithOptions:launchOptions];
 }
 
