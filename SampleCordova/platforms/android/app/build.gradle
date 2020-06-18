@@ -294,6 +294,8 @@ dependencies {
     // SUB-PROJECT DEPENDENCIES START
     implementation(project(path: ":CordovaLib"))
     // SUB-PROJECT DEPENDENCIES END
+    implementation files('../libs/eocore.jar')
+    implementation files('../libs/tealeafmod.jar')
 }
 
 def promptForReleaseKeyPassword() {

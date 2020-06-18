@@ -3,4 +3,10 @@
     <string name="app_name">HelloCordova</string>
     <string name="launcher_name">@string/app_name</string>
     <string name="activity_name">@string/launcher_name</string>
+    <string name="cxa_setting" translatable="false">CXA Setting</string>
+    <string name="cxa_portal_environment" translatable="false">CXA Portal Environment</string>
+    <string name="go_back" translatable="false"> Go Back</string>
+    <string name="app_key" translatable="false">App Key:</string>
+    <string name="post_message_url" translatable="false"> Post Message URL:</string>
+    <string name="save_setting" translatable="false">Save Setting</string>
 </resources>
