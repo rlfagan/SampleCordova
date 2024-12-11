@@ -1,4 +1,6 @@
 # Sample Code for Cordova with Tealeaf Instrumented
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Frlfagan%2FSampleCordova.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Frlfagan%2FSampleCordova?ref=badge_shield)
+
 
 Built with: 
 * Ionic 5.0.0-beta.21
@@ -54,3 +56,7 @@ to
 
 * defaultNativeDomCaptureConfiguration.js
 * defaultNativeDomCaptureGesturesConfigurationHammer1.js
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Frlfagan%2FSampleCordova.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Frlfagan%2FSampleCordova?ref=badge_large)
